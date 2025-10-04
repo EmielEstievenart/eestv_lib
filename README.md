@@ -1,4 +1,5 @@
 # eestv_lib
+
 The reusable library part of my personal eestv project. Designed as a submodule with no extra dependencies for external usage. 
 
 This is a lightweight submodule that's supposed to be fast to check out and doesn't add much size to the super-project.
@@ -12,5 +13,5 @@ https://github.com/EmielEstievenart/eestv
 
 Here's a list of dependencies for this project
 
-** Boost::asio
-** Boost::system 
+* Boost::asio
+* Boost::system 
