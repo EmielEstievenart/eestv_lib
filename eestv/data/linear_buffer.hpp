@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 /**
@@ -87,9 +88,9 @@ public:
 
 private:
     std::vector<std::uint8_t> _buffer;
-    std::size_t _head;  // Index where next data will be written
-    std::size_t _tail;  // Index where next data will be read from
-    std::size_t _size;  // Current amount of data in buffer
+    std::size_t _head; // Index where next data will be written
+    std::size_t _tail; // Index where next data will be read from
+    std::size_t _size; // Current amount of data in buffer
 
     /**
      * @brief Reset head and tail to 0 when buffer becomes empty
