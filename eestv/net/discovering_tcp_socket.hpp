@@ -7,9 +7,6 @@
 #include <memory>
 #include <chrono>
 
-namespace ba = boost::asio;
-using boost::asio::ip::tcp;
-
 /**
  * @brief A discovering TCP socket that uses UdpDiscoveryClient to find services.
  * 
@@ -39,12 +36,12 @@ using boost::asio::ip::tcp;
  * io_context.run();
  * @endcode
  */
-class DiscoveringTcpSocket : public tcp::socket
+class DiscoveringTcpSocket : public boost::asio::ip::tcp::socket
 {
 private:
     std::string _identifier;
     unsigned short _udp_port;
-    ba::io_context& _io_context;
+    boost::asio::io_context& _io_context;
     std::unique_ptr<UdpDiscoveryClient> _discovery_client;
     std::chrono::milliseconds _retry_timeout;
 
@@ -64,7 +61,8 @@ public:
      * @param handler Completion handler called when connection completes or fails.
      *               Handler signature: void(boost::system::error_code ec)
      */
-    template <typename CompletionHandler> void async_connect_via_discovery(CompletionHandler&& handler);
+    template <typename CompletionHandler>
+    void async_connect_via_discovery(CompletionHandler&& handler);
 
     /**
      * @brief Destructor - ensures proper cleanup of discovery client.
@@ -78,13 +76,14 @@ public:
 };
 
 // Template method implementation
-template <typename CompletionHandler> void DiscoveringTcpSocket::async_connect_via_discovery(CompletionHandler&& handler)
+template <typename CompletionHandler>
+void DiscoveringTcpSocket::async_connect_via_discovery(CompletionHandler&& handler)
 {
     // Create the discovery client with a response handler
     _discovery_client = std::make_unique<UdpDiscoveryClient>(
         _io_context, _identifier, _retry_timeout, _udp_port,
-        [this, handler = std::forward<CompletionHandler>(handler)](
-            const std::string& response, const boost::asio::ip::udp::endpoint& remote_endpoint) mutable -> bool
+        [this, handler = std::forward<CompletionHandler>(handler)](const std::string& response,
+                                                                   const boost::asio::ip::udp::endpoint& remote_endpoint) mutable -> bool
         {
             try
             {
@@ -95,15 +94,15 @@ template <typename CompletionHandler> void DiscoveringTcpSocket::async_connect_v
                 _discovery_client->stop();
 
                 // Connect to the discovered service using the remote endpoint's address
-                tcp::endpoint service_endpoint(remote_endpoint.address(), discovered_port);
+                boost::asio::ip::tcp::endpoint service_endpoint(remote_endpoint.address(), discovered_port);
 
                 // Perform async TCP connection
                 this->async_connect(service_endpoint,
-                                   [handler = std::move(handler)](boost::system::error_code ec) mutable
-                                   {
-                                       // Call the completion handler with the result
-                                       handler(ec);
-                                   });
+                                    [handler = std::move(handler)](boost::system::error_code ec) mutable
+                                    {
+                                        // Call the completion handler with the result
+                                        handler(ec);
+                                    });
 
                 return true; // Stop discovery after first response
             }
