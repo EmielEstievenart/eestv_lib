@@ -24,7 +24,9 @@ private:
     std::string _service_name;
     boost::asio::ip::udp::socket _socket;
     boost::asio::ip::udp::endpoint _remote_endpoint;
-    std::array<char, 1024> _recv_buffer;
+    /// Size of the receive buffer in bytes.
+    static constexpr std::size_t recv_buffer_size = 1024;
+    std::array<char, recv_buffer_size> _recv_buffer;
     std::chrono::milliseconds _retry_timeout;
     boost::asio::steady_timer _timer;
     bool _running;

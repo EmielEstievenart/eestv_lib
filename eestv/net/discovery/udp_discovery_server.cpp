@@ -1,4 +1,4 @@
-#include "eestv/net/udp_discovery_server.hpp"
+#include "udp_discovery_server.hpp"
 #include <iostream>
 
 UdpDiscoveryServer::UdpDiscoveryServer(boost::asio::io_context& io_context, int port)
@@ -50,7 +50,7 @@ void UdpDiscoveryServer::handle_receive(const boost::system::error_code& error, 
                 reply = it->second.get_reply();
             }
         }
-        
+
         if (!reply.empty())
         {
             // Send the reply back to the requester

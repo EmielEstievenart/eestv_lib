@@ -1,8 +1,8 @@
 // DiscoverableTcpSocket.hpp
 #pragma once
 
-#include "eestv/net/udp_discovery_server.hpp"
-#include "eestv/net/discoverable.hpp"
+#include "eestv/net/discovery/udp_discovery_server.hpp"
+#include "eestv/net/discovery/discoverable.hpp"
 #include <boost/asio.hpp>
 #include <string>
 #include <memory>
@@ -47,7 +47,8 @@ public:
    * @param handler Completion handler to be called when the accept operation completes.
    *               Handler signature: void(boost::system::error_code ec)
    */
-    template <typename AcceptHandler> void async_accept(boost::asio::ip::tcp::socket& socket, AcceptHandler&& handler);
+    template <typename AcceptHandler>
+    void async_accept(boost::asio::ip::tcp::socket& socket, AcceptHandler&& handler);
 
     /**
    * @brief Gets the TCP port this socket is listening on.
@@ -63,7 +64,8 @@ public:
 };
 
 // Template method implementation
-template <typename AcceptHandler> void DiscoverableTcpSocket::async_accept(boost::asio::ip::tcp::socket& socket, AcceptHandler&& handler)
+template <typename AcceptHandler>
+void DiscoverableTcpSocket::async_accept(boost::asio::ip::tcp::socket& socket, AcceptHandler&& handler)
 {
     _acceptor.async_accept(socket, std::forward<AcceptHandler>(handler));
 }

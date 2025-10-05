@@ -1,4 +1,4 @@
-#include "eestv/net/discoverable.hpp"
+#include "discoverable.hpp"
 
 Discoverable::Discoverable(const std::string& identifier, std::function<std::string()> callback)
     : _identifier(identifier), _callback(callback)

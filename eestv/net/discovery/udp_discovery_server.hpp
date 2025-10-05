@@ -1,6 +1,6 @@
 #pragma once
 
-#include "eestv/net/discoverable.hpp"
+#include "discoverable.hpp"
 #include "boost/asio.hpp"
 #include "boost/asio/io_context.hpp"
 #include <unordered_map>
@@ -65,8 +65,10 @@ private:
     boost::asio::io_context& _io_context;
     boost::asio::ip::udp::socket _socket;
     boost::asio::ip::udp::endpoint _remote_endpoint;
-    std::array<char, 1024> _recv_buffer;
+    /// Size of the receive buffer in bytes.
+    static constexpr std::size_t recv_buffer_size = 1024;
+    std::array<char, recv_buffer_size> _recv_buffer;
     std::unordered_map<std::string, Discoverable> _discoverables;
-    mutable std::mutex _discoverables_mutex;  // Add mutex for thread safety
+    mutable std::mutex _discoverables_mutex; // Add mutex for thread safety
     int _port;
 };

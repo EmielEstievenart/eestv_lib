@@ -1,7 +1,7 @@
 // DiscoveringTcpSocket.hpp
 #pragma once
 
-#include "eestv/net/udp_discovery_client.hpp"
+#include "eestv/net/discovery/udp_discovery_client.hpp"
 #include <boost/asio.hpp>
 #include <string>
 #include <memory>

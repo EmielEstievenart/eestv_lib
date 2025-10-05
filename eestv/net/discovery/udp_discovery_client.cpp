@@ -1,4 +1,4 @@
-#include "eestv/net/udp_discovery_client.hpp"
+#include "udp_discovery_client.hpp"
 #include <iostream>
 
 UdpDiscoveryClient::UdpDiscoveryClient(boost::asio::io_context& io_context, const std::string& service_name,
@@ -11,6 +11,7 @@ UdpDiscoveryClient::UdpDiscoveryClient(boost::asio::io_context& io_context, cons
     , _response_handler(std::move(response_handler))
     , _socket(io_context, boost::asio::ip::udp::v4())
     , _timer(io_context)
+    , _recv_buffer()
     , _running(false)
 {
     _socket.set_option(boost::asio::ip::multicast::outbound_interface(boost::asio::ip::address_v4::any()));
