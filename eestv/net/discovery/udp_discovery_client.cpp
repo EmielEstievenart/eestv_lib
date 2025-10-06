@@ -1,9 +1,9 @@
 #include "udp_discovery_client.hpp"
 #include <iostream>
 
-UdpDiscoveryClient::UdpDiscoveryClient(boost::asio::io_context& io_context, const std::string& service_name,
-                                       std::chrono::milliseconds retry_timeout, int port,
-                                       std::function<bool(const std::string&, const boost::asio::ip::udp::endpoint&)> response_handler)
+UdpDiscoveryClient::UdpDiscoveryClient(
+    boost::asio::io_context& io_context, const std::string& service_name, std::chrono::milliseconds retry_timeout, int port,
+    std::function<bool(const std::string& response, const boost::asio::ip::udp::endpoint& remote_endpoint)> response_handler)
     : _io_context(io_context)
     , _service_name(service_name)
     , _retry_timeout(retry_timeout)
