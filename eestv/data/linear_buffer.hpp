@@ -86,6 +86,43 @@ public:
      */
     void clear();
 
+    // Boost.Asio buffer interface compatibility
+
+    /**
+     * @brief Get pointer to writable memory area (for Boost.Asio compatibility)
+     * 
+     * @return uint8_t* Pointer to the location where new data can be written
+     */
+    std::uint8_t* data() { return &_buffer[_head]; }
+
+    /**
+     * @brief Get size of writable area (for Boost.Asio compatibility)
+     * 
+     * @return std::size_t Number of bytes available for writing
+     */
+    std::size_t size() const { return available_space(); }
+
+    /**
+     * @brief Commit written bytes to the buffer
+     * 
+     * Call this after data has been written directly to the buffer
+     * (e.g., after async_read_some completes) to advance the write position.
+     * 
+     * @param bytes_written Number of bytes that were written
+     * @return true if successful, false if size exceeds available space
+     */
+    bool commit(std::size_t bytes_written)
+    {
+        if (bytes_written > available_space())
+        {
+            return false;
+        }
+
+        _head += bytes_written;
+        _size += bytes_written;
+        return true;
+    }
+
 private:
     std::vector<std::uint8_t> _buffer;
     std::size_t _head; // Index where next data will be written
