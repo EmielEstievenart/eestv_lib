@@ -12,7 +12,11 @@ add_library(
   eestv/net/tcp_connection.hpp
   eestv/threading/spinlock_mutex.hpp
   eestv/data/linear_buffer.hpp
-  eestv/data/linear_buffer.cpp)
+  eestv/data/linear_buffer.cpp
+  eestv/data_bridge/data_bridge.hpp
+  eestv/data_bridge/data_bridge.cpp
+  eestv/logging/eestv_logging.hpp
+  eestv/logging/eestv_logging.cpp)
 
 target_include_directories(eestv_lib PUBLIC .)
 
