@@ -1,48 +1,14 @@
 #include "eestv/data/linear_buffer.hpp"
 #include <cstring>
 
-LinearBuffer::LinearBuffer(std::size_t size) 
-    : _buffer(size), _head(0), _tail(0), _size(0)
+LinearBuffer::LinearBuffer(std::size_t size) : _buffer(size), _head(0), _tail(0), _size(0)
 {
 }
 
-bool LinearBuffer::push(const void* data, std::size_t size)
+const std::uint8_t* LinearBuffer::get_read_head(std::size_t& size_out) const
 {
-    if (size == 0 || data == nullptr)
-    {
-        return false;
-    }
-
-    // Check if we have enough space
-    if (available_space() < size)
-    {
-        return false;
-    }
-
-    // Check if we have enough contiguous space at the current head position
-    if (_head + size > _buffer.size())
-    {
-        return false;
-    }
-
-    // Copy data to buffer
-    std::memcpy(&_buffer[_head], data, size);
-    _head += size;
-    _size += size;
-
-    return true;
-}
-
-const void* LinearBuffer::peek(std::size_t& size_out) const
-{
-    if (_size == 0)
-    {
-        size_out = 0;
-        return nullptr;
-    }
-
     size_out = _size;
-    return &_buffer[_tail];
+    return _size > 0 ? &_buffer[_tail] : nullptr;
 }
 
 bool LinearBuffer::consume(std::size_t size)
@@ -60,36 +26,29 @@ bool LinearBuffer::consume(std::size_t size)
     return true;
 }
 
-std::size_t LinearBuffer::available_data() const
+std::uint8_t* LinearBuffer::get_write_head(std::size_t& size_out)
 {
-    return _size;
+    // Available space is the total capacity minus current size,
+    // but we can only write up to the end of the buffer from current head position
+    std::size_t space_to_end = _buffer.size() - _head;
+    std::size_t total_free   = _buffer.size() - _size;
+    size_out                 = (space_to_end < total_free) ? space_to_end : total_free;
+    return (size_out > 0) ? &_buffer[_head] : nullptr;
 }
 
-std::size_t LinearBuffer::available_space() const
+bool LinearBuffer::commit(std::size_t bytes_written)
 {
-    return _buffer.size() - _size;
-}
+    std::size_t writable;
+    get_write_head(writable);
 
-std::size_t LinearBuffer::capacity() const
-{
-    return _buffer.size();
-}
+    if (bytes_written > writable)
+    {
+        return false;
+    }
 
-bool LinearBuffer::is_empty() const
-{
-    return _size == 0;
-}
-
-bool LinearBuffer::is_full() const
-{
-    return _size == _buffer.size();
-}
-
-void LinearBuffer::clear()
-{
-    _head = 0;
-    _tail = 0;
-    _size = 0;
+    _head += bytes_written;
+    _size += bytes_written;
+    return true;
 }
 
 void LinearBuffer::reset_if_empty()

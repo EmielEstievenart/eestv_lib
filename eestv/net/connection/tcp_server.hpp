@@ -16,34 +16,43 @@ namespace eestv
  * connections. Each accepted connection is wrapped in a TcpServerConnection and
  * passed to a user-provided callback.
  * 
- * @tparam ReceiveBuffer The buffer type to use for TcpServerConnection instances
+ * @tparam ReceiveBuffer The buffer type to use for receiving data in TcpServerConnection instances
+ * @tparam SendBuffer The buffer type to use for sending data in TcpServerConnection instances
  */
-template <typename ReceiveBuffer = ArrayBufferAdapter<4096>>
+template <typename ReceiveBuffer = LinearBuffer, typename SendBuffer = LinearBuffer>
 class TcpServer
 {
 public:
-    using ConnectionPtr      = std::shared_ptr<TcpServerConnection<ReceiveBuffer>>;
+    using ConnectionPtr      = std::shared_ptr<TcpServerConnection<ReceiveBuffer, SendBuffer>>;
     using ConnectionCallback = std::function<void(ConnectionPtr)>;
+
+    static constexpr std::size_t default_buffer_size = 4096;
 
     /**
      * @brief Construct a TCP server
      * 
      * @param io_context The Boost.Asio io_context to use
      * @param port The port to listen on
+     * @param receive_buffer_size Size of receive buffer for each connection
+     * @param send_buffer_size Size of send buffer for each connection
      * @param keepalive_interval Keepalive interval for accepted connections
      */
-    TcpServer(boost::asio::io_context& io_context, unsigned short port,
-              std::chrono::seconds keepalive_interval = TcpServerConnection<ReceiveBuffer>::default_keepalive_interval);
+    TcpServer(boost::asio::io_context& io_context, unsigned short port, std::size_t receive_buffer_size = default_buffer_size,
+              std::size_t send_buffer_size            = default_buffer_size,
+              std::chrono::seconds keepalive_interval = TcpServerConnection<ReceiveBuffer, SendBuffer>::default_keepalive_interval);
 
     /**
      * @brief Construct a TCP server with specific endpoint
      * 
      * @param io_context The Boost.Asio io_context to use
      * @param endpoint The endpoint to bind to (address + port)
+     * @param receive_buffer_size Size of receive buffer for each connection
+     * @param send_buffer_size Size of send buffer for each connection
      * @param keepalive_interval Keepalive interval for accepted connections
      */
     TcpServer(boost::asio::io_context& io_context, const boost::asio::ip::tcp::endpoint& endpoint,
-              std::chrono::seconds keepalive_interval = TcpServerConnection<ReceiveBuffer>::default_keepalive_interval);
+              std::size_t receive_buffer_size = default_buffer_size, std::size_t send_buffer_size = default_buffer_size,
+              std::chrono::seconds keepalive_interval = TcpServerConnection<ReceiveBuffer, SendBuffer>::default_keepalive_interval);
 
     ~TcpServer() = default;
 
@@ -102,6 +111,8 @@ private:
 
     boost::asio::io_context& _io_context;
     boost::asio::ip::tcp::acceptor _acceptor;
+    std::size_t _receive_buffer_size;
+    std::size_t _send_buffer_size;
     std::chrono::seconds _keepalive_interval;
     ConnectionCallback _connection_callback;
     bool _is_running;
@@ -109,24 +120,33 @@ private:
 
 // Template implementation
 
-template <typename ReceiveBuffer>
-TcpServer<ReceiveBuffer>::TcpServer(boost::asio::io_context& io_context, unsigned short port, std::chrono::seconds keepalive_interval)
+template <typename ReceiveBuffer, typename SendBuffer>
+TcpServer<ReceiveBuffer, SendBuffer>::TcpServer(boost::asio::io_context& io_context, unsigned short port, std::size_t receive_buffer_size,
+                                                std::size_t send_buffer_size, std::chrono::seconds keepalive_interval)
     : _io_context(io_context)
     , _acceptor(io_context, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port))
+    , _receive_buffer_size(receive_buffer_size)
+    , _send_buffer_size(send_buffer_size)
     , _keepalive_interval(keepalive_interval)
     , _is_running(false)
 {
 }
 
-template <typename ReceiveBuffer>
-TcpServer<ReceiveBuffer>::TcpServer(boost::asio::io_context& io_context, const boost::asio::ip::tcp::endpoint& endpoint,
-                                    std::chrono::seconds keepalive_interval)
-    : _io_context(io_context), _acceptor(io_context, endpoint), _keepalive_interval(keepalive_interval), _is_running(false)
+template <typename ReceiveBuffer, typename SendBuffer>
+TcpServer<ReceiveBuffer, SendBuffer>::TcpServer(boost::asio::io_context& io_context, const boost::asio::ip::tcp::endpoint& endpoint,
+                                                std::size_t receive_buffer_size, std::size_t send_buffer_size,
+                                                std::chrono::seconds keepalive_interval)
+    : _io_context(io_context)
+    , _acceptor(io_context, endpoint)
+    , _receive_buffer_size(receive_buffer_size)
+    , _send_buffer_size(send_buffer_size)
+    , _keepalive_interval(keepalive_interval)
+    , _is_running(false)
 {
 }
 
-template <typename ReceiveBuffer>
-void TcpServer<ReceiveBuffer>::start()
+template <typename ReceiveBuffer, typename SendBuffer>
+void TcpServer<ReceiveBuffer, SendBuffer>::start()
 {
     if (_is_running)
     {
@@ -137,8 +157,8 @@ void TcpServer<ReceiveBuffer>::start()
     start_accept();
 }
 
-template <typename ReceiveBuffer>
-void TcpServer<ReceiveBuffer>::stop()
+template <typename ReceiveBuffer, typename SendBuffer>
+void TcpServer<ReceiveBuffer, SendBuffer>::stop()
 {
     if (!_is_running)
     {
@@ -152,8 +172,8 @@ void TcpServer<ReceiveBuffer>::stop()
     // Ignore errors on close
 }
 
-template <typename ReceiveBuffer>
-void TcpServer<ReceiveBuffer>::start_accept()
+template <typename ReceiveBuffer, typename SendBuffer>
+void TcpServer<ReceiveBuffer, SendBuffer>::start_accept()
 {
     if (!_is_running)
     {
@@ -164,13 +184,14 @@ void TcpServer<ReceiveBuffer>::start_accept()
                            { handle_accept(error_code, std::move(socket)); });
 }
 
-template <typename ReceiveBuffer>
-void TcpServer<ReceiveBuffer>::handle_accept(const boost::system::error_code& error_code, boost::asio::ip::tcp::socket socket)
+template <typename ReceiveBuffer, typename SendBuffer>
+void TcpServer<ReceiveBuffer, SendBuffer>::handle_accept(const boost::system::error_code& error_code, boost::asio::ip::tcp::socket socket)
 {
     if (!error_code)
     {
         // Create a TcpServerConnection for the accepted socket
-        auto connection = std::make_shared<TcpServerConnection<ReceiveBuffer>>(std::move(socket), _io_context, _keepalive_interval);
+        auto connection = std::make_shared<TcpServerConnection<ReceiveBuffer, SendBuffer>>(
+            std::move(socket), _io_context, _receive_buffer_size, _send_buffer_size, _keepalive_interval);
 
         // Start monitoring the connection
         connection->start_monitoring();

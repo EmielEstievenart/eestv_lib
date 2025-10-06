@@ -22,21 +22,12 @@ public:
     explicit LinearBuffer(std::size_t size);
 
     /**
-     * @brief Push data into the buffer
+     * @brief Get pointer to the read head (data ready to be read/sent) and number of readable bytes
      * 
-     * @param data Pointer to the data to be pushed
-     * @param size Number of bytes to push
-     * @return true if data was successfully pushed, false if insufficient space
+     * @param size_out Output parameter that will contain the number of bytes available to read
+     * @return const std::uint8_t* Pointer to the start of readable data, or nullptr if empty
      */
-    bool push(const void* data, std::size_t size);
-
-    /**
-     * @brief Get a pointer to the next available data and its size
-     * 
-     * @param size_out Output parameter that will contain the size of available data
-     * @return const void* Pointer to the start of the next data chunk, or nullptr if empty
-     */
-    const void* peek(std::size_t& size_out) const;
+    const std::uint8_t* get_read_head(std::size_t& size_out) const;
 
     /**
      * @brief Remove/consume the specified number of bytes from the front of the buffer
@@ -47,60 +38,12 @@ public:
     bool consume(std::size_t size);
 
     /**
-     * @brief Get the number of bytes currently stored in the buffer
+     * @brief Get pointer to the write head (where new data can be written) and number of writable bytes
      * 
-     * @return std::size_t Number of bytes of data available
+     * @param size_out Output parameter that will contain the number of bytes available to write
+     * @return std::uint8_t* Pointer to the location where new data can be written, or nullptr if no space
      */
-    std::size_t available_data() const;
-
-    /**
-     * @brief Get the number of bytes of free space in the buffer
-     * 
-     * @return std::size_t Number of bytes available for writing
-     */
-    std::size_t available_space() const;
-
-    /**
-     * @brief Get the total capacity of the buffer
-     * 
-     * @return std::size_t Total buffer capacity in bytes
-     */
-    std::size_t capacity() const;
-
-    /**
-     * @brief Check if the buffer is empty
-     * 
-     * @return true if buffer is empty, false otherwise
-     */
-    bool is_empty() const;
-
-    /**
-     * @brief Check if the buffer is full
-     * 
-     * @return true if buffer is full, false otherwise
-     */
-    bool is_full() const;
-
-    /**
-     * @brief Clear all data from the buffer and reset head/tail to 0
-     */
-    void clear();
-
-    // Boost.Asio buffer interface compatibility
-
-    /**
-     * @brief Get pointer to writable memory area (for Boost.Asio compatibility)
-     * 
-     * @return uint8_t* Pointer to the location where new data can be written
-     */
-    std::uint8_t* data() { return &_buffer[_head]; }
-
-    /**
-     * @brief Get size of writable area (for Boost.Asio compatibility)
-     * 
-     * @return std::size_t Number of bytes available for writing
-     */
-    std::size_t size() const { return available_space(); }
+    std::uint8_t* get_write_head(std::size_t& size_out);
 
     /**
      * @brief Commit written bytes to the buffer
@@ -111,17 +54,7 @@ public:
      * @param bytes_written Number of bytes that were written
      * @return true if successful, false if size exceeds available space
      */
-    bool commit(std::size_t bytes_written)
-    {
-        if (bytes_written > available_space())
-        {
-            return false;
-        }
-
-        _head += bytes_written;
-        _size += bytes_written;
-        return true;
-    }
+    bool commit(std::size_t bytes_written);
 
 private:
     std::vector<std::uint8_t> _buffer;
