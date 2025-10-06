@@ -1,6 +1,6 @@
 #pragma once
 
-#include "eestv/net/tcp_connection.hpp"
+#include "eestv/net/connection/tcp_connection.hpp"
 
 namespace eestv
 {

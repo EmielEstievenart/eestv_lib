@@ -1,6 +1,6 @@
 #pragma once
 
-#include "eestv/net/tcp_server_connection.hpp"
+#include "eestv/net/connection/tcp_server_connection.hpp"
 #include <boost/asio.hpp>
 #include <functional>
 #include <memory>
