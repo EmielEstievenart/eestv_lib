@@ -1,6 +1,6 @@
 #pragma once
 
-#include "eestv/net/server_connection.hpp"
+#include "eestv/net/tcp_server_connection.hpp"
 #include <boost/asio.hpp>
 #include <functional>
 #include <memory>
@@ -10,19 +10,19 @@ namespace eestv
 {
 
 /**
- * @brief TCP server that accepts connections and creates ServerConnection instances
+ * @brief TCP server that accepts connections and creates TcpServerConnection instances
  * 
  * The TcpServer listens on a specified port and automatically accepts incoming
- * connections. Each accepted connection is wrapped in a ServerConnection and
+ * connections. Each accepted connection is wrapped in a TcpServerConnection and
  * passed to a user-provided callback.
  * 
- * @tparam ReceiveBuffer The buffer type to use for ServerConnection instances
+ * @tparam ReceiveBuffer The buffer type to use for TcpServerConnection instances
  */
 template <typename ReceiveBuffer = ArrayBufferAdapter<4096>>
 class TcpServer
 {
 public:
-    using ConnectionPtr      = std::shared_ptr<ServerConnection<ReceiveBuffer>>;
+    using ConnectionPtr      = std::shared_ptr<TcpServerConnection<ReceiveBuffer>>;
     using ConnectionCallback = std::function<void(ConnectionPtr)>;
 
     /**
@@ -33,7 +33,7 @@ public:
      * @param keepalive_interval Keepalive interval for accepted connections
      */
     TcpServer(boost::asio::io_context& io_context, unsigned short port,
-              std::chrono::seconds keepalive_interval = ServerConnection<ReceiveBuffer>::default_keepalive_interval);
+              std::chrono::seconds keepalive_interval = TcpServerConnection<ReceiveBuffer>::default_keepalive_interval);
 
     /**
      * @brief Construct a TCP server with specific endpoint
@@ -43,7 +43,7 @@ public:
      * @param keepalive_interval Keepalive interval for accepted connections
      */
     TcpServer(boost::asio::io_context& io_context, const boost::asio::ip::tcp::endpoint& endpoint,
-              std::chrono::seconds keepalive_interval = ServerConnection<ReceiveBuffer>::default_keepalive_interval);
+              std::chrono::seconds keepalive_interval = TcpServerConnection<ReceiveBuffer>::default_keepalive_interval);
 
     ~TcpServer() = default;
 
@@ -57,7 +57,7 @@ public:
      * 
      * This callback is invoked whenever a new client connects.
      * 
-     * @param callback Function to call with each new ServerConnection
+     * @param callback Function to call with each new TcpServerConnection
      */
     void set_connection_callback(ConnectionCallback callback) { _connection_callback = std::move(callback); }
 
@@ -169,8 +169,8 @@ void TcpServer<ReceiveBuffer>::handle_accept(const boost::system::error_code& er
 {
     if (!error_code)
     {
-        // Create a ServerConnection for the accepted socket
-        auto connection = std::make_shared<ServerConnection<ReceiveBuffer>>(std::move(socket), _io_context, _keepalive_interval);
+        // Create a TcpServerConnection for the accepted socket
+        auto connection = std::make_shared<TcpServerConnection<ReceiveBuffer>>(std::move(socket), _io_context, _keepalive_interval);
 
         // Start monitoring the connection
         connection->start_monitoring();

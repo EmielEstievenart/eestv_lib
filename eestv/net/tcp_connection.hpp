@@ -13,7 +13,7 @@ namespace eestv
 {
 
 /**
- * @brief Adapter for std::array to work with Connection's buffer interface
+ * @brief Adapter for std::array to work with TcpConnection's buffer interface
  * 
  * Provides data(), size(), and commit() methods for compatibility.
  */
@@ -60,7 +60,7 @@ private:
 };
 
 template <typename ReceiveBuffer = ArrayBufferAdapter<4096>>
-class Connection : public std::enable_shared_from_this<Connection<ReceiveBuffer>>
+class TcpConnection : public std::enable_shared_from_this<TcpConnection<ReceiveBuffer>>
 {
 public:
     enum class State
@@ -93,12 +93,12 @@ public:
     static constexpr std::size_t receive_buffer_size = 4096;
     static constexpr std::chrono::seconds default_keepalive_interval {5};
 
-    virtual ~Connection();
+    virtual ~TcpConnection();
 
-    Connection(const Connection&)            = delete;
-    Connection& operator=(const Connection&) = delete;
-    Connection(Connection&&)                 = delete;
-    Connection& operator=(Connection&&)      = delete;
+    TcpConnection(const TcpConnection&)            = delete;
+    TcpConnection& operator=(const TcpConnection&) = delete;
+    TcpConnection(TcpConnection&&)                 = delete;
+    TcpConnection& operator=(TcpConnection&&)      = delete;
 
     State get_state() const { return _state; }
     bool is_connected() const { return _state == State::connected || _state == State::monitoring; }
@@ -110,8 +110,8 @@ public:
     void disconnect();
 
 protected:
-    Connection(boost::asio::ip::tcp::socket&& socket, boost::asio::io_context& io_context,
-               std::chrono::seconds keepalive_interval = default_keepalive_interval);
+    TcpConnection(boost::asio::ip::tcp::socket&& socket, boost::asio::io_context& io_context,
+                  std::chrono::seconds keepalive_interval = default_keepalive_interval);
 
     virtual void on_connection_lost() = 0;
 
@@ -140,8 +140,8 @@ private:
 // Template implementation
 
 template <typename ReceiveBuffer>
-Connection<ReceiveBuffer>::Connection(boost::asio::ip::tcp::socket&& socket, boost::asio::io_context& io_context,
-                                      std::chrono::seconds keepalive_interval)
+TcpConnection<ReceiveBuffer>::TcpConnection(boost::asio::ip::tcp::socket&& socket, boost::asio::io_context& io_context,
+                                            std::chrono::seconds keepalive_interval)
     : _io_context {io_context}
     , _socket(std::move(socket))
     , _keep_alive_interval(keepalive_interval)
@@ -153,7 +153,7 @@ Connection<ReceiveBuffer>::Connection(boost::asio::ip::tcp::socket&& socket, boo
     try
     {
         _remote_endpoint = _socket.remote_endpoint();
-        // EESTV_LOG_DEBUG("Connection established with " << _remote_endpoint.address().to_string() << ":" << _remote_endpoint.port());
+        // EESTV_LOG_DEBUG("TcpConnection established with " << _remote_endpoint.address().to_string() << ":" << _remote_endpoint.port());
     }
     catch (const boost::system::system_error& e)
     {
@@ -162,13 +162,13 @@ Connection<ReceiveBuffer>::Connection(boost::asio::ip::tcp::socket&& socket, boo
 }
 
 template <typename ReceiveBuffer>
-Connection<ReceiveBuffer>::~Connection()
+TcpConnection<ReceiveBuffer>::~TcpConnection()
 {
     disconnect();
 }
 
 template <typename ReceiveBuffer>
-void Connection<ReceiveBuffer>::disconnect()
+void TcpConnection<ReceiveBuffer>::disconnect()
 {
     if (_state == State::dead)
     {
@@ -187,7 +187,7 @@ void Connection<ReceiveBuffer>::disconnect()
 }
 
 template <typename ReceiveBuffer>
-void Connection<ReceiveBuffer>::start_monitoring()
+void TcpConnection<ReceiveBuffer>::start_monitoring()
 {
     if (_state == State::dead)
     {
@@ -200,7 +200,7 @@ void Connection<ReceiveBuffer>::start_monitoring()
 }
 
 template <typename ReceiveBuffer>
-void Connection<ReceiveBuffer>::set_state(State new_state)
+void TcpConnection<ReceiveBuffer>::set_state(State new_state)
 {
     if (_state != new_state)
     {
@@ -210,7 +210,7 @@ void Connection<ReceiveBuffer>::set_state(State new_state)
 }
 
 template <typename ReceiveBuffer>
-void Connection<ReceiveBuffer>::start_keepalive()
+void TcpConnection<ReceiveBuffer>::start_keepalive()
 {
     if (_state == State::dead)
     {
@@ -242,7 +242,7 @@ void Connection<ReceiveBuffer>::start_keepalive()
 }
 
 template <typename ReceiveBuffer>
-void Connection<ReceiveBuffer>::on_keepalive_timer()
+void TcpConnection<ReceiveBuffer>::on_keepalive_timer()
 {
     auto now                 = std::chrono::steady_clock::now();
     auto time_since_activity = std::chrono::duration_cast<std::chrono::seconds>(now - _last_activity);
@@ -273,7 +273,7 @@ void Connection<ReceiveBuffer>::on_keepalive_timer()
 }
 
 template <typename ReceiveBuffer>
-void Connection<ReceiveBuffer>::send_keep_alive()
+void TcpConnection<ReceiveBuffer>::send_keep_alive()
 {
     // If no callback is set, skip keep-alive sending
     if (!_keep_alive_callback)
@@ -310,7 +310,7 @@ void Connection<ReceiveBuffer>::send_keep_alive()
 }
 
 template <typename ReceiveBuffer>
-void Connection<ReceiveBuffer>::start_receive()
+void TcpConnection<ReceiveBuffer>::start_receive()
 {
     if (_state == State::dead)
     {
@@ -324,7 +324,7 @@ void Connection<ReceiveBuffer>::start_receive()
 }
 
 template <typename ReceiveBuffer>
-void Connection<ReceiveBuffer>::on_receive(const boost::system::error_code& ec, std::size_t bytes_transferred)
+void TcpConnection<ReceiveBuffer>::on_receive(const boost::system::error_code& ec, std::size_t bytes_transferred)
 {
     if (ec)
     {
