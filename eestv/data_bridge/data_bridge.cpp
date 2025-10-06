@@ -2,8 +2,10 @@
 #include "eestv/logging/eestv_logging.hpp"
 
 #include <boost/program_options.hpp>
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <vector>
 
 namespace eestv
@@ -15,6 +17,35 @@ DataBridge::DataBridge(int argc, char* argv[]) : _client_server_mode(ClientServe
     EESTV_SET_LOG_LEVEL(Info);
 
     parse_command_line_parameters(argc, argv);
+    set_up_discovery(_client_server_mode, _discovery_target);
+
+    // Run the io_context on a background thread so discovery can operate
+    _io_thread = std::thread(
+        [this]()
+        {
+            EESTV_LOG_DEBUG("io_context thread started");
+            try
+            {
+                _io_context.run();
+            }
+            catch (const std::exception& e)
+            {
+                EESTV_LOG_ERROR("Exception in io_context thread: " << e.what());
+            }
+            EESTV_LOG_DEBUG("io_context thread exiting");
+        });
+}
+
+DataBridge::~DataBridge()
+{
+    EESTV_LOG_DEBUG("Stopping io_context");
+    // Stop the io_context and join the thread if joinable
+    _io_context.stop();
+    if (_io_thread.joinable())
+    {
+        _io_thread.join();
+    }
+    EESTV_LOG_DEBUG("io_context stopped and thread joined");
 }
 
 ClientServerMode DataBridge::client_server_mode() const noexcept
@@ -137,6 +168,33 @@ void DataBridge::parse_command_line_parameters(int argc, char* argv[])
         std::cerr << "Error: " << error.what() << '\n';
         std::cerr << desc << '\n';
         throw;
+    }
+}
+
+void DataBridge::set_up_discovery(ClientServerMode client_server_mode, const std::string& discovery_target)
+{
+    constexpr int default_port = 12345;
+
+    if (client_server_mode == ClientServerMode::client)
+    {
+        // Client needs: io_context, service_name, retry_timeout, port, response_handler
+        auto response_handler = [](const std::string& response, const boost::asio::ip::udp::endpoint& endpoint)
+        {
+            EESTV_LOG_INFO("Discovery response received: " << response << " from " << endpoint.address().to_string() << ":"
+                                                           << endpoint.port());
+            return true; // Return true to stop discovery after first response
+        };
+
+        _discovery_client = std::make_unique<UdpDiscoveryClient>(_io_context, discovery_target, std::chrono::milliseconds(1000),
+                                                                 default_port, response_handler);
+
+        EESTV_LOG_INFO("Discovery client initialized for target: " << discovery_target);
+    }
+    else
+    {
+        // Server needs: io_context, port
+        _discovery_server = std::make_unique<UdpDiscoveryServer>(_io_context, default_port);
+        EESTV_LOG_INFO("Discovery server initialized for target: " << discovery_target);
     }
 }
 
