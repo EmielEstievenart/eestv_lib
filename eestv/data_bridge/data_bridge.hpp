@@ -5,6 +5,9 @@ namespace eestv
 class DataBridge
 {
 public:
-    DataBridge();
+    DataBridge(int argc, char* argv[]);
+
+private:
+    void parse_command_line_parameters(int argc, char* argv[]);
 };
 }

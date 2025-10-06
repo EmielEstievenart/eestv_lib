@@ -20,4 +20,5 @@ add_library(
 
 target_include_directories(eestv_lib PUBLIC .)
 
-target_link_libraries(eestv_lib PUBLIC Boost::asio Boost::system)
+target_link_libraries(eestv_lib PUBLIC Boost::asio Boost::system
+                                       Boost::program_options)
