@@ -1,10 +1,12 @@
 #pragma once
 
 #include "eestv/net/connection/tcp_server_connection.hpp"
+#include "eestv/logging/eestv_logging.hpp"
+
 #include <boost/asio.hpp>
 #include <functional>
 #include <memory>
-#include <vector>
+#include <mutex>
 
 namespace eestv
 {
@@ -25,6 +27,7 @@ class TcpServer
 public:
     using ConnectionPtr      = std::shared_ptr<TcpServerConnection<ReceiveBuffer, SendBuffer>>;
     using ConnectionCallback = std::function<void(ConnectionPtr)>;
+    using StoppedCallback    = std::function<void(TcpServer<>* stopped_server)>;
 
     static constexpr std::size_t default_buffer_size = 4096;
 
@@ -68,21 +71,31 @@ public:
      * 
      * @param callback Function to call with each new TcpServerConnection
      */
-    void set_connection_callback(ConnectionCallback callback) { _connection_callback = std::move(callback); }
+    void set_connection_callback(ConnectionCallback callback)
+    {
+        std::unique_lock<std::mutex> lock(_mutex);
+        _connection_callback = std::move(callback);
+    }
+
+    void set_stopped_callback(StoppedCallback callback)
+    {
+        std::unique_lock<std::mutex> lock(_mutex);
+        _stopped_callback = std::move(callback);
+    }
 
     /**
      * @brief Start accepting connections
      * 
      * Begins listening for and accepting new connections.
      */
-    void start();
+    void async_start();
 
     /**
      * @brief Stop accepting connections
      * 
      * Stops the acceptor and closes any pending accept operations.
      */
-    void stop();
+    void async_stop();
 
     /**
      * @brief Check if the server is currently accepting connections
@@ -106,7 +119,7 @@ public:
     unsigned short port() const { return _acceptor.local_endpoint().port(); }
 
 private:
-    void start_accept();
+    void async_start_accept();
     void handle_accept(const boost::system::error_code& error_code, boost::asio::ip::tcp::socket socket);
 
     boost::asio::io_context& _io_context;
@@ -115,7 +128,10 @@ private:
     std::size_t _send_buffer_size;
     std::chrono::seconds _keepalive_interval;
     ConnectionCallback _connection_callback;
+    StoppedCallback _stopped_callback;
+
     bool _is_running;
+    std::mutex _mutex;
 };
 
 // Template implementation
@@ -146,40 +162,37 @@ TcpServer<ReceiveBuffer, SendBuffer>::TcpServer(boost::asio::io_context& io_cont
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
-void TcpServer<ReceiveBuffer, SendBuffer>::start()
+void TcpServer<ReceiveBuffer, SendBuffer>::async_start()
 {
+    std::unique_lock<std::mutex> lock(_mutex);
+
     if (_is_running)
     {
         return;
     }
 
     _is_running = true;
-    start_accept();
+    async_start_accept();
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
-void TcpServer<ReceiveBuffer, SendBuffer>::stop()
+void TcpServer<ReceiveBuffer, SendBuffer>::async_stop()
 {
+    std::unique_lock<std::mutex> lock(_mutex);
+
     if (!_is_running)
     {
         return;
     }
-
-    _is_running = false;
 
     boost::system::error_code error_code;
+    //Even though the docs say it will cancel immediately, that is not true. It cancels immediately **on the io_context's thread**
     _acceptor.close(error_code);
-    // Ignore errors on close
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
-void TcpServer<ReceiveBuffer, SendBuffer>::start_accept()
+void TcpServer<ReceiveBuffer, SendBuffer>::async_start_accept()
 {
-    if (!_is_running)
-    {
-        return;
-    }
-
     _acceptor.async_accept([this](const boost::system::error_code& error_code, boost::asio::ip::tcp::socket socket)
                            { handle_accept(error_code, std::move(socket)); });
 }
@@ -187,28 +200,43 @@ void TcpServer<ReceiveBuffer, SendBuffer>::start_accept()
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpServer<ReceiveBuffer, SendBuffer>::handle_accept(const boost::system::error_code& error_code, boost::asio::ip::tcp::socket socket)
 {
-    if (!error_code)
+    std::unique_lock<std::mutex> lock(_mutex);
+
+    if (error_code)
     {
-        // Create a TcpServerConnection for the accepted socket
-        auto connection = std::make_shared<TcpServerConnection<ReceiveBuffer, SendBuffer>>(
-            std::move(socket), _io_context, _receive_buffer_size, _send_buffer_size, _keepalive_interval);
-
-        // Start monitoring the connection
-        connection->start_monitoring();
-
-        // Notify the user
-        if (_connection_callback)
+        if (error_code == boost::asio::error::operation_aborted)
         {
-            _connection_callback(connection);
+            //No lock required here as this means the stop has been called and the mutex is already locked.
+            EESTV_LOG_INFO("server stopped with operation_aborted on endpoint " << _acceptor.local_endpoint().address().to_string() << ":"
+                                                                                << _acceptor.local_endpoint().port());
         }
-    }
-    // If there was an error, we just continue accepting unless stopped
+        else
+        {
+            EESTV_LOG_ERROR("Accept failed on endpoint " << _acceptor.local_endpoint().address().to_string() << ":"
+                                                         << _acceptor.local_endpoint().port() << " with error: " << error_code.message());
+            EESTV_LOG_ERROR("The server has stopped. ");
+        }
 
-    // Accept the next connection
-    if (_is_running)
-    {
-        start_accept();
+        _is_running = false;
+
+        // Post stopped callback to io_context for immediate execution
+        if (_stopped_callback)
+        {
+            boost::asio::post(_io_context, [this, callback = _stopped_callback]() { callback(this); });
+        }
+
+        return;
     }
+
+    auto connection = std::make_shared<TcpServerConnection<ReceiveBuffer, SendBuffer>>(std::move(socket), _io_context, _receive_buffer_size,
+                                                                                       _send_buffer_size, _keepalive_interval);
+    connection->start_monitoring();
+    if (_connection_callback)
+    {
+        _connection_callback(connection);
+    }
+
+    async_start_accept();
 }
 
 } // namespace eestv

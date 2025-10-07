@@ -3,6 +3,7 @@
 #include "eestv/data/linear_buffer.hpp"
 #include "boost/asio/io_context.hpp"
 #include "boost/asio/ip/tcp.hpp"
+#include "tcp_connection_states.hpp"
 #include <boost/asio.hpp>
 
 #include <chrono>
@@ -16,30 +17,6 @@ template <typename ReceiveBuffer = LinearBuffer, typename SendBuffer = LinearBuf
 class TcpConnection : public std::enable_shared_from_this<TcpConnection<ReceiveBuffer, SendBuffer>>
 {
 public:
-    enum class State
-    {
-        connected,
-        monitoring,
-        lost,
-        dead
-    };
-
-    inline const char* to_string(State state) noexcept
-    {
-        switch (state)
-        {
-        case State::connected:
-            return "connected";
-        case State::monitoring:
-            return "monitoring";
-        case State::lost:
-            return "lost";
-        case State::dead:
-            return "dead";
-        }
-        return "unknown";
-    }
-
     using ConnectionLostCallback = std::function<void()>;
     using KeepAliveCallback      = std::function<std::pair<bool, std::vector<char>>()>;
 
@@ -53,8 +30,8 @@ public:
     TcpConnection(TcpConnection&&)                 = delete;
     TcpConnection& operator=(TcpConnection&&)      = delete;
 
-    State get_state() const { return _state; }
-    bool is_connected() const { return _state == State::connected || _state == State::monitoring; }
+    TcpConnectionState get_state() const { return _state; }
+    bool is_connected() const { return _state == TcpConnectionState::connected || _state == TcpConnectionState::monitoring; }
 
     void set_connection_lost_callback(ConnectionLostCallback callback) { _connection_lost_callback = std::move(callback); }
     void set_keep_alive_callback(KeepAliveCallback callback) { _keep_alive_callback = std::move(callback); }
@@ -77,7 +54,7 @@ protected:
 
     virtual void on_connection_lost() = 0;
 
-    void set_state(State new_state);
+    void set_state(TcpConnectionState new_state);
     void start_keepalive();
     void start_receive();
 
@@ -92,7 +69,7 @@ private:
     void on_receive(const boost::system::error_code& error, std::size_t bytes_transferred);
     void on_send(const boost::system::error_code& error, std::size_t bytes_transferred);
 
-    State _state;
+    TcpConnectionState _state;
     boost::asio::steady_timer _keepalive_timer;
     std::chrono::steady_clock::time_point _last_activity;
     ReceiveBuffer _receive_buffer;
@@ -111,7 +88,7 @@ TcpConnection<ReceiveBuffer, SendBuffer>::TcpConnection(boost::asio::ip::tcp::so
     : _io_context {io_context}
     , _socket(std::move(socket))
     , _keep_alive_interval(keepalive_interval)
-    , _state(State::connected)
+    , _state(TcpConnectionState::connected)
     , _keepalive_timer(_io_context)
     , _last_activity(std::chrono::steady_clock::now())
     , _receive_buffer(receive_buffer_size)
@@ -138,12 +115,12 @@ TcpConnection<ReceiveBuffer, SendBuffer>::~TcpConnection()
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpConnection<ReceiveBuffer, SendBuffer>::disconnect()
 {
-    if (_state == State::dead)
+    if (_state == TcpConnectionState::dead)
     {
         return;
     }
 
-    set_state(State::dead);
+    set_state(TcpConnectionState::dead);
 
     _keepalive_timer.cancel();
     boost::system::error_code ec;
@@ -157,18 +134,18 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::disconnect()
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpConnection<ReceiveBuffer, SendBuffer>::start_monitoring()
 {
-    if (_state == State::dead)
+    if (_state == TcpConnectionState::dead)
     {
         return;
     }
 
-    set_state(State::monitoring);
+    set_state(TcpConnectionState::monitoring);
     start_keepalive();
     start_receive();
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
-void TcpConnection<ReceiveBuffer, SendBuffer>::set_state(State new_state)
+void TcpConnection<ReceiveBuffer, SendBuffer>::set_state(TcpConnectionState new_state)
 {
     if (_state != new_state)
     {
@@ -180,7 +157,7 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::set_state(State new_state)
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpConnection<ReceiveBuffer, SendBuffer>::send()
 {
-    if (_state == State::dead)
+    if (_state == TcpConnectionState::dead)
     {
         return;
     }
@@ -215,7 +192,7 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::on_send(const boost::system::erro
     if (ec)
     {
         // EESTV_LOG_INFO("Send error: " << ec.message());
-        set_state(State::lost);
+        set_state(TcpConnectionState::lost);
         on_connection_lost();
         if (_connection_lost_callback)
         {
@@ -240,7 +217,7 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::on_send(const boost::system::erro
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpConnection<ReceiveBuffer, SendBuffer>::start_keepalive()
 {
-    if (_state == State::dead)
+    if (_state == TcpConnectionState::dead)
     {
         return;
     }
@@ -277,7 +254,7 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::on_keepalive_timer()
 
     if (time_since_activity >= _keep_alive_interval)
     {
-        if (_state == State::monitoring)
+        if (_state == TcpConnectionState::monitoring)
         {
             if (_socket.is_open())
             {
@@ -286,7 +263,7 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::on_keepalive_timer()
             else
             {
                 // EESTV_LOG_INFO("Socket closed, connection lost");
-                set_state(State::lost);
+                set_state(TcpConnectionState::lost);
                 on_connection_lost();
                 if (_connection_lost_callback)
                 {
@@ -327,7 +304,7 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::send_keep_alive()
             if (ec)
             {
                 // EESTV_LOG_INFO("Keep-alive failed: " << ec.message());
-                self->set_state(State::lost);
+                self->set_state(TcpConnectionState::lost);
                 self->on_connection_lost();
                 if (self->_connection_lost_callback)
                 {
@@ -340,13 +317,23 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::send_keep_alive()
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpConnection<ReceiveBuffer, SendBuffer>::start_receive()
 {
-    if (_state == State::dead)
+    if (_state == TcpConnectionState::dead)
     {
         return;
     }
 
-    // Use buffer interface: data() returns pointer, size() returns available space
-    _socket.async_read_some(boost::asio::buffer(_receive_buffer.data(), _receive_buffer.size()),
+    // Get write head for receiving data
+    std::size_t writable_size = 0;
+    std::uint8_t* write_head  = _receive_buffer.get_write_head(writable_size);
+
+    if (write_head == nullptr || writable_size == 0)
+    {
+        // No space available, cannot receive - schedule retry after a short delay
+        // This prevents spinning but allows the buffer to be cleared by user code
+        return;
+    }
+
+    _socket.async_read_some(boost::asio::buffer(write_head, writable_size),
                             [self = this->shared_from_this()](const boost::system::error_code& ec, std::size_t bytes_transferred)
                             { self->on_receive(ec, bytes_transferred); });
 }
@@ -357,7 +344,7 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::on_receive(const boost::system::e
     if (ec)
     {
         // EESTV_LOG_INFO("Receive error: " << ec.message());
-        set_state(State::lost);
+        set_state(TcpConnectionState::lost);
         on_connection_lost();
         if (_connection_lost_callback)
         {

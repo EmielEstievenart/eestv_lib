@@ -65,13 +65,13 @@ TcpClientConnection<ReceiveBuffer, SendBuffer>::TcpClientConnection(boost::asio:
                                                keepalive_interval)
 {
     this->_remote_endpoint = remote_endpoint;
-    this->set_state(typename TcpConnection<ReceiveBuffer, SendBuffer>::State::dead);
+    this->set_state(TcpConnectionState::dead);
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpClientConnection<ReceiveBuffer, SendBuffer>::connect()
 {
-    if (this->get_state() != typename TcpConnection<ReceiveBuffer, SendBuffer>::State::dead)
+    if (this->get_state() != TcpConnectionState::dead)
     {
         // EESTV_LOG_DEBUG("TcpConnection already active, ignoring connect request");
         return;
@@ -92,7 +92,7 @@ void TcpClientConnection<ReceiveBuffer, SendBuffer>::handle_connect_result(const
         // EESTV_LOG_INFO("Successfully connected");
         _reconnect_attempts      = 0;
         _current_reconnect_delay = default_reconnect_delay;
-        this->set_state(typename TcpConnection<ReceiveBuffer, SendBuffer>::State::connected);
+        this->set_state(TcpConnectionState::connected);
         this->start_monitoring();
     }
     else
@@ -107,7 +107,7 @@ void TcpClientConnection<ReceiveBuffer, SendBuffer>::handle_connect_result(const
         else
         {
             // EESTV_LOG_ERROR("Max reconnection attempts reached or auto-reconnect disabled");
-            this->set_state(typename TcpConnection<ReceiveBuffer, SendBuffer>::State::dead);
+            this->set_state(TcpConnectionState::dead);
         }
     }
 }
@@ -123,7 +123,7 @@ void TcpClientConnection<ReceiveBuffer, SendBuffer>::on_connection_lost()
     }
     else
     {
-        this->set_state(typename TcpConnection<ReceiveBuffer, SendBuffer>::State::dead);
+        this->set_state(TcpConnectionState::dead);
     }
 }
 
@@ -133,7 +133,7 @@ void TcpClientConnection<ReceiveBuffer, SendBuffer>::attempt_reconnect()
     if (_max_reconnect_attempts >= 0 && _reconnect_attempts >= _max_reconnect_attempts)
     {
         // EESTV_LOG_ERROR("Max reconnection attempts reached");
-        this->set_state(typename TcpConnection<ReceiveBuffer, SendBuffer>::State::dead);
+        this->set_state(TcpConnectionState::dead);
         return;
     }
 
@@ -160,13 +160,13 @@ void TcpClientConnection<ReceiveBuffer, SendBuffer>::attempt_reconnect()
                 catch (const std::exception& exception)
                 {
                     // EESTV_LOG_ERROR("Exception during reconnect");
-                    self->set_state(typename TcpConnection<ReceiveBuffer, SendBuffer>::State::dead);
+                    self->set_state(TcpConnectionState::dead);
                 }
             }
             else if (error_code != boost::asio::error::operation_aborted)
             {
                 // EESTV_LOG_ERROR("Reconnect timer error");
-                self->set_state(typename TcpConnection<ReceiveBuffer, SendBuffer>::State::dead);
+                self->set_state(TcpConnectionState::dead);
             }
         });
 

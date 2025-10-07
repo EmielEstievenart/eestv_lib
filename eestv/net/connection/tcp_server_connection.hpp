@@ -35,7 +35,7 @@ template <typename ReceiveBuffer, typename SendBuffer>
 void TcpServerConnection<ReceiveBuffer, SendBuffer>::on_connection_lost()
 {
     // EESTV_LOG_INFO("Server connection lost, marking as dead");
-    this->set_state(typename TcpConnection<ReceiveBuffer, SendBuffer>::State::dead);
+    this->set_state(TcpConnectionState::dead);
 }
 
 } // namespace eestv
