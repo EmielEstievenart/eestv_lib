@@ -93,7 +93,7 @@ void TcpClientConnection<ReceiveBuffer, SendBuffer>::handle_connect_result(const
         _reconnect_attempts      = 0;
         _current_reconnect_delay = default_reconnect_delay;
         this->set_state(TcpConnectionState::connected);
-        this->start_monitoring();
+        this->start_alive_monitoring();
     }
     else
     {

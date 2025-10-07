@@ -27,7 +27,7 @@ class TcpServer
 public:
     using ConnectionPtr      = std::shared_ptr<TcpServerConnection<ReceiveBuffer, SendBuffer>>;
     using ConnectionCallback = std::function<void(ConnectionPtr)>;
-    using StoppedCallback    = std::function<void(TcpServer<>* stopped_server)>;
+    using StoppedCallback    = std::function<void()>;
 
     static constexpr std::size_t default_buffer_size = 4096;
 
@@ -77,12 +77,6 @@ public:
         _connection_callback = std::move(callback);
     }
 
-    void set_stopped_callback(StoppedCallback callback)
-    {
-        std::unique_lock<std::mutex> lock(_mutex);
-        _stopped_callback = std::move(callback);
-    }
-
     /**
      * @brief Start accepting connections
      * 
@@ -94,8 +88,10 @@ public:
      * @brief Stop accepting connections
      * 
      * Stops the acceptor and closes any pending accept operations.
+     * 
+     * @param callback Optional callback to be invoked when the server has fully stopped
      */
-    void async_stop();
+    void async_stop(StoppedCallback callback = nullptr);
 
     /**
      * @brief Check if the server is currently accepting connections
@@ -128,7 +124,7 @@ private:
     std::size_t _send_buffer_size;
     std::chrono::seconds _keepalive_interval;
     ConnectionCallback _connection_callback;
-    StoppedCallback _stopped_callback;
+    StoppedCallback _pending_stopped_callback;
 
     bool _is_running;
     std::mutex _mutex;
@@ -176,7 +172,7 @@ void TcpServer<ReceiveBuffer, SendBuffer>::async_start()
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
-void TcpServer<ReceiveBuffer, SendBuffer>::async_stop()
+void TcpServer<ReceiveBuffer, SendBuffer>::async_stop(StoppedCallback callback)
 {
     std::unique_lock<std::mutex> lock(_mutex);
 
@@ -184,6 +180,8 @@ void TcpServer<ReceiveBuffer, SendBuffer>::async_stop()
     {
         return;
     }
+
+    _pending_stopped_callback = std::move(callback);
 
     boost::system::error_code error_code;
     //Even though the docs say it will cancel immediately, that is not true. It cancels immediately **on the io_context's thread**
@@ -206,23 +204,29 @@ void TcpServer<ReceiveBuffer, SendBuffer>::handle_accept(const boost::system::er
     {
         if (error_code == boost::asio::error::operation_aborted)
         {
-            //No lock required here as this means the stop has been called and the mutex is already locked.
-            EESTV_LOG_INFO("server stopped with operation_aborted on endpoint " << _acceptor.local_endpoint().address().to_string() << ":"
+            EESTV_LOG_INFO("Server stopped with operation_aborted on endpoint " << _acceptor.local_endpoint().address().to_string() << ":"
                                                                                 << _acceptor.local_endpoint().port());
         }
         else
         {
-            EESTV_LOG_ERROR("Accept failed on endpoint " << _acceptor.local_endpoint().address().to_string() << ":"
-                                                         << _acceptor.local_endpoint().port() << " with error: " << error_code.message());
-            EESTV_LOG_ERROR("The server has stopped. ");
+            EESTV_LOG_ERROR("Accept operation failed " << error_code.message() << " (code=" << error_code.value()
+                                                       << ", category=" << error_code.category().name() << ") "
+                                                       << "on endpoint " << _acceptor.local_endpoint().address().to_string() << " : "
+                                                       << _acceptor.local_endpoint().port());
         }
 
         _is_running = false;
 
         // Post stopped callback to io_context for immediate execution
-        if (_stopped_callback)
+        if (_pending_stopped_callback)
         {
-            boost::asio::post(_io_context, [this, callback = _stopped_callback]() { callback(this); });
+            boost::asio::post(_io_context,
+                              [callback = std::move(_pending_stopped_callback)]()
+                              {
+                                  EESTV_LOG_INFO("The server has stopped. ");
+                                  callback();
+                              });
+            _pending_stopped_callback = nullptr;
         }
 
         return;
@@ -230,7 +234,7 @@ void TcpServer<ReceiveBuffer, SendBuffer>::handle_accept(const boost::system::er
 
     auto connection = std::make_shared<TcpServerConnection<ReceiveBuffer, SendBuffer>>(std::move(socket), _io_context, _receive_buffer_size,
                                                                                        _send_buffer_size, _keepalive_interval);
-    connection->start_monitoring();
+    connection->start_alive_monitoring();
     if (_connection_callback)
     {
         _connection_callback(connection);
