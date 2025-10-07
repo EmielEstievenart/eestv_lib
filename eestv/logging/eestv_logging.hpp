@@ -50,46 +50,50 @@ inline const char* get_log_level_name(LogLevel level)
 #define EESTV_SET_LOG_LEVEL(level) eestv::logging::current_log_level = eestv::logging::LogLevel::level
 
 // Logging macros that accept stream expressions
-#define EESTV_LOG_ERROR(message)                                                                                          \
-    do                                                                                                                    \
-    {                                                                                                                     \
-        if (eestv::logging::should_log(eestv::logging::LogLevel::Error))                                                  \
-        {                                                                                                                 \
-            std::ostringstream oss;                                                                                       \
-            oss << "[" << eestv::logging::get_log_level_name(eestv::logging::LogLevel::Error) << "] " << message << "\n"; \
-            std::cout << oss.str();                                                                                       \
-        }                                                                                                                 \
+#define EESTV_LOG_ERROR(message)                                                                                                     \
+    do                                                                                                                               \
+    {                                                                                                                                \
+        if (eestv::logging::should_log(eestv::logging::LogLevel::Error))                                                             \
+        {                                                                                                                            \
+            std::ostringstream oss;                                                                                                  \
+            oss << "[" << eestv::logging::get_log_level_name(eestv::logging::LogLevel::Error) << "] " << __func__ << ": " << message \
+                << "\n";                                                                                                             \
+            std::cout << oss.str();                                                                                                  \
+        }                                                                                                                            \
     } while (0)
 
-#define EESTV_LOG_INFO(message)                                                                                          \
-    do                                                                                                                   \
-    {                                                                                                                    \
-        if (eestv::logging::should_log(eestv::logging::LogLevel::Info))                                                  \
-        {                                                                                                                \
-            std::ostringstream oss;                                                                                      \
-            oss << "[" << eestv::logging::get_log_level_name(eestv::logging::LogLevel::Info) << "] " << message << "\n"; \
-            std::cout << oss.str();                                                                                      \
-        }                                                                                                                \
+#define EESTV_LOG_INFO(message)                                                                                                     \
+    do                                                                                                                              \
+    {                                                                                                                               \
+        if (eestv::logging::should_log(eestv::logging::LogLevel::Info))                                                             \
+        {                                                                                                                           \
+            std::ostringstream oss;                                                                                                 \
+            oss << "[" << eestv::logging::get_log_level_name(eestv::logging::LogLevel::Info) << "] " << __func__ << ": " << message \
+                << "\n";                                                                                                            \
+            std::cout << oss.str();                                                                                                 \
+        }                                                                                                                           \
     } while (0)
 
-#define EESTV_LOG_DEBUG(message)                                                                                          \
-    do                                                                                                                    \
-    {                                                                                                                     \
-        if (eestv::logging::should_log(eestv::logging::LogLevel::Debug))                                                  \
-        {                                                                                                                 \
-            std::ostringstream oss;                                                                                       \
-            oss << "[" << eestv::logging::get_log_level_name(eestv::logging::LogLevel::Debug) << "] " << message << "\n"; \
-            std::cout << oss.str();                                                                                       \
-        }                                                                                                                 \
+#define EESTV_LOG_DEBUG(message)                                                                                                     \
+    do                                                                                                                               \
+    {                                                                                                                                \
+        if (eestv::logging::should_log(eestv::logging::LogLevel::Debug))                                                             \
+        {                                                                                                                            \
+            std::ostringstream oss;                                                                                                  \
+            oss << "[" << eestv::logging::get_log_level_name(eestv::logging::LogLevel::Debug) << "] " << __func__ << ": " << message \
+                << "\n";                                                                                                             \
+            std::cout << oss.str();                                                                                                  \
+        }                                                                                                                            \
     } while (0)
 
-#define EESTV_LOG_TRACE(message)                                                                                          \
-    do                                                                                                                    \
-    {                                                                                                                     \
-        if (eestv::logging::should_log(eestv::logging::LogLevel::Trace))                                                  \
-        {                                                                                                                 \
-            std::ostringstream oss;                                                                                       \
-            oss << "[" << eestv::logging::get_log_level_name(eestv::logging::LogLevel::Trace) << "] " << message << "\n"; \
-            std::cout << oss.str();                                                                                       \
-        }                                                                                                                 \
+#define EESTV_LOG_TRACE(message)                                                                                                     \
+    do                                                                                                                               \
+    {                                                                                                                                \
+        if (eestv::logging::should_log(eestv::logging::LogLevel::Trace))                                                             \
+        {                                                                                                                            \
+            std::ostringstream oss;                                                                                                  \
+            oss << "[" << eestv::logging::get_log_level_name(eestv::logging::LogLevel::Trace) << "] " << __func__ << ": " << message \
+                << "\n";                                                                                                             \
+            std::cout << oss.str();                                                                                                  \
+        }                                                                                                                            \
     } while (0)
