@@ -14,4 +14,4 @@ constexpr void check_if_type_is_serializable()
     static_assert(!std::is_same<T, long double>::value, "Long double isn't allowed");
 }
 
-};
+}
