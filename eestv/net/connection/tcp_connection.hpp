@@ -25,12 +25,15 @@ public:
 
     static constexpr std::size_t receive_buffer_size = 4096;
 
-    virtual ~TcpConnection();
+    TcpConnection(boost::asio::ip::tcp::socket&& socket, boost::asio::io_context& io_context, std::size_t receive_buffer_size,
+                  std::size_t send_buffer_size);
 
     TcpConnection(const TcpConnection&)            = delete;
     TcpConnection& operator=(const TcpConnection&) = delete;
     TcpConnection(TcpConnection&&)                 = delete;
     TcpConnection& operator=(TcpConnection&&)      = delete;
+
+    virtual ~TcpConnection();
 
     void set_connection_lost_callback(OnConnectionLostCallback callback) { _connection_lost_callback = std::move(callback); }
     void set_data_received_callback(OnDataReceivedCallback callback) { _data_received_callback = std::move(callback); }
@@ -49,10 +52,7 @@ public:
     void asycn_disconnect();
 
 protected:
-    TcpConnection(boost::asio::ip::tcp::socket&& socket, boost::asio::io_context& io_context, std::size_t receive_buffer_size,
-                  std::size_t send_buffer_size);
-
-    virtual void on_connection_lost() = 0;
+    virtual void on_connection_lost() { }
 
     void async_receive();
     void async_send();

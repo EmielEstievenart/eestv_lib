@@ -1,6 +1,6 @@
 #pragma once
 
-#include "eestv/net/connection/tcp_server_connection.hpp"
+#include "eestv/net/connection/tcp_connection.hpp"
 #include "eestv/logging/eestv_logging.hpp"
 
 #include <boost/asio.hpp>
@@ -12,20 +12,20 @@ namespace eestv
 {
 
 /**
- * @brief TCP server that accepts connections and creates TcpServerConnection instances
+ * @brief TCP server that accepts connections and creates TcpConnection instances
  * 
  * The TcpServer listens on a specified port and automatically accepts incoming
- * connections. Each accepted connection is wrapped in a TcpServerConnection and
+ * connections. Each accepted connection is wrapped in a TcpConnection and
  * passed to a user-provided callback.
  * 
- * @tparam ReceiveBuffer The buffer type to use for receiving data in TcpServerConnection instances
- * @tparam SendBuffer The buffer type to use for sending data in TcpServerConnection instances
+ * @tparam ReceiveBuffer The buffer type to use for receiving data in TcpConnection instances
+ * @tparam SendBuffer The buffer type to use for sending data in TcpConnection instances
  */
 template <typename ReceiveBuffer = LinearBuffer, typename SendBuffer = LinearBuffer>
 class TcpServer
 {
 public:
-    using ConnectionPtr      = std::shared_ptr<TcpServerConnection<ReceiveBuffer, SendBuffer>>;
+    using ConnectionPtr      = std::shared_ptr<TcpConnection<ReceiveBuffer, SendBuffer>>;
     using ConnectionCallback = std::function<void(ConnectionPtr)>;
     using StoppedCallback    = std::function<void()>;
 
@@ -65,7 +65,7 @@ public:
      * 
      * This callback is invoked whenever a new client connects.
      * 
-     * @param callback Function to call with each new TcpServerConnection
+     * @param callback Function to call with each new TcpConnection
      */
     void set_connection_callback(ConnectionCallback callback)
     {
@@ -224,8 +224,8 @@ void TcpServer<ReceiveBuffer, SendBuffer>::handle_accept(const boost::system::er
         return;
     }
 
-    auto connection = std::make_shared<TcpServerConnection<ReceiveBuffer, SendBuffer>>(std::move(socket), _io_context, _receive_buffer_size,
-                                                                                       _send_buffer_size);
+    auto connection =
+        std::make_shared<TcpConnection<ReceiveBuffer, SendBuffer>>(std::move(socket), _io_context, _receive_buffer_size, _send_buffer_size);
     if (_connection_callback)
     {
         _connection_callback(connection);
