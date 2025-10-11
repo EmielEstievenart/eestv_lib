@@ -8,8 +8,6 @@ add_library(
   eestv/net/discovery/udp_discovery_client.cpp
   eestv/net/discovery/udp_discovery_client.hpp
   eestv/net/connection/tcp_connection.hpp
-  eestv/net/connection/tcp_client_connection.hpp
-  eestv/net/connection/tcp_server_connection.hpp
   eestv/net/connection/tcp_server.hpp
   eestv/threading/spinlock_mutex.hpp
   eestv/data/linear_buffer.hpp
