@@ -4,6 +4,9 @@ namespace eestv
 {
 enum class TcpConnectionState
 {
+    sending,
+    receiving,
+    closing,
     connected,
     monitoring,
     lost,
