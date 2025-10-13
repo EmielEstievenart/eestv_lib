@@ -25,6 +25,13 @@ inline const char* to_string(TcpConnectionState state) noexcept
         return "lost";
     case TcpConnectionState::dead:
         return "dead";
+    case TcpConnectionState::sending:
+        return "sending";
+    case TcpConnectionState::receiving:
+        return "receiving";
+    case TcpConnectionState::closing:
+        return "closing";
+        break;
     }
     return "unknown";
 }
