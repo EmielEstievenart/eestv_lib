@@ -17,7 +17,7 @@ namespace eestv
 enum class TcpServerState
 {
     accepting,
-    stopping
+    closing
 };
 
 inline const char* to_string(TcpServerState state) noexcept
@@ -26,8 +26,8 @@ inline const char* to_string(TcpServerState state) noexcept
     {
     case TcpServerState::accepting:
         return "accepting";
-    case TcpServerState::stopping:
-        return "stopping";
+    case TcpServerState::closing:
+        return "closing";
     }
     return "unknown";
 }
@@ -166,7 +166,6 @@ private:
     }
 
     // Internal methods that run on io_context thread
-    void start();
     void stop();
     void async_accept();
     void handle_accept(const boost::system::error_code& error_code, boost::asio::ip::tcp::socket socket);
@@ -210,8 +209,8 @@ template <typename ReceiveBuffer, typename SendBuffer>
 TcpServer<ReceiveBuffer, SendBuffer>::~TcpServer()
 {
     async_stop();
-    // Wait for async operations to complete
-    while (get_flag_thread_safe(TcpServerState::accepting) || get_flag_thread_safe(TcpServerState::stopping))
+
+    while (get_flag_thread_safe(TcpServerState::accepting) || get_flag_thread_safe(TcpServerState::closing))
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
@@ -220,58 +219,29 @@ TcpServer<ReceiveBuffer, SendBuffer>::~TcpServer()
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpServer<ReceiveBuffer, SendBuffer>::async_start()
 {
-    // Post to io_context to avoid race conditions
-    // Capture 'this' safely - the caller must keep the server alive
-    boost::asio::post(_io_context, [this]() { this->start(); });
-}
-
-template <typename ReceiveBuffer, typename SendBuffer>
-void TcpServer<ReceiveBuffer, SendBuffer>::start()
-{
-    // Runs on io_context thread
     std::unique_lock<std::mutex> lock(_mutex);
-
-    if (_flags.get_flag(TcpServerState::accepting))
+    if (!_flags.get_flag(TcpServerState::accepting))
     {
-        return;
+        _flags.set_flag(TcpServerState::accepting);
+        boost::asio::post(_io_context, [this]() { this->async_accept(); });
     }
-    _flags.set_flag(TcpServerState::accepting);
-
-    async_accept();
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpServer<ReceiveBuffer, SendBuffer>::async_stop()
 {
-    // Post to io_context to avoid race conditions
-    // Capture 'this' safely - the caller must keep the server alive
-    try
+    std::unique_lock<std::mutex> lock(_mutex);
+    if (!_flags.get_flag(TcpServerState::closing) && _flags.get_flag(TcpServerState::accepting))
     {
+        _flags.set_flag(TcpServerState::closing);
         boost::asio::post(_io_context, [this]() { this->stop(); });
-    }
-    catch (const std::exception& ex)
-    {
-        EESTV_LOG_ERROR("async_stop: exception posting to io_context: " << ex.what());
-    }
-    catch (...)
-    {
-        EESTV_LOG_ERROR("async_stop: unknown exception posting to io_context");
     }
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpServer<ReceiveBuffer, SendBuffer>::stop()
 {
-    // Runs on io_context thread
     std::unique_lock<std::mutex> lock(_mutex);
-
-    if (!_flags.get_flag(TcpServerState::accepting))
-    {
-        return;
-    }
-
-    _flags.set_flag(TcpServerState::stopping);
-
     boost::system::error_code error_code;
     // Even though the docs say it will cancel immediately, that is not true. It cancels immediately **on the io_context's thread**
     _acceptor.close(error_code);
@@ -305,7 +275,7 @@ void TcpServer<ReceiveBuffer, SendBuffer>::handle_accept(const boost::system::er
         }
 
         _flags.clear_flag(TcpServerState::accepting);
-        _flags.clear_flag(TcpServerState::stopping);
+        _flags.clear_flag(TcpServerState::closing);
 
         if (_stopped_callback)
         {
