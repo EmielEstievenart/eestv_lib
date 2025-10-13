@@ -2,14 +2,35 @@
 
 #include "eestv/net/connection/tcp_connection.hpp"
 #include "eestv/logging/eestv_logging.hpp"
+#include "eestv/flags/flags.hpp"
 
 #include <boost/asio.hpp>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <thread>
 
 namespace eestv
 {
+
+enum class TcpServerState
+{
+    accepting,
+    stopping
+};
+
+inline const char* to_string(TcpServerState state) noexcept
+{
+    switch (state)
+    {
+    case TcpServerState::accepting:
+        return "accepting";
+    case TcpServerState::stopping:
+        return "stopping";
+    }
+    return "unknown";
+}
 
 /**
  * @brief TCP server that accepts connections and creates TcpConnection instances
@@ -25,7 +46,7 @@ template <typename ReceiveBuffer = LinearBuffer, typename SendBuffer = LinearBuf
 class TcpServer
 {
 public:
-    using ConnectionPtr      = std::shared_ptr<TcpConnection<ReceiveBuffer, SendBuffer>>;
+    using ConnectionPtr      = std::unique_ptr<TcpConnection<ReceiveBuffer, SendBuffer>>;
     using ConnectionCallback = std::function<void(ConnectionPtr)>;
     using StoppedCallback    = std::function<void()>;
 
@@ -53,7 +74,7 @@ public:
     TcpServer(boost::asio::io_context& io_context, const boost::asio::ip::tcp::endpoint& endpoint,
               std::size_t receive_buffer_size = default_buffer_size, std::size_t send_buffer_size = default_buffer_size);
 
-    ~TcpServer() = default;
+    ~TcpServer();
 
     TcpServer(const TcpServer&)            = delete;
     TcpServer& operator=(const TcpServer&) = delete;
@@ -74,27 +95,40 @@ public:
     }
 
     /**
-     * @brief Start accepting connections
+     * @brief Set the callback for when the server stops
+     * 
+     * This callback is invoked when the server has fully stopped accepting connections.
+     * 
+     * @param callback Function to call when the server stops
+     */
+    void set_stopped_callback(StoppedCallback callback)
+    {
+        std::unique_lock<std::mutex> lock(_mutex);
+        _stopped_callback = std::move(callback);
+    }
+
+    /**
+     * @brief Start accepting connections (posts to io_context)
      * 
      * Begins listening for and accepting new connections.
+     * This operation is posted to the io_context to avoid race conditions.
      */
     void async_start();
 
     /**
-     * @brief Stop accepting connections
+     * @brief Stop accepting connections (posts to io_context)
      * 
      * Stops the acceptor and closes any pending accept operations.
-     * 
-     * @param callback Optional callback to be invoked when the server has fully stopped
+     * This operation is posted to the io_context to avoid race conditions.
      */
-    void async_stop(StoppedCallback callback = nullptr);
+    void async_stop();
 
     /**
      * @brief Check if the server is currently accepting connections
      * 
      * @return true if accepting, false otherwise
      */
-    bool is_running() const { return _is_running; }
+    bool is_running() const { return get_flag_thread_safe(TcpServerState::accepting); }
 
     /**
      * @brief Get the local endpoint the server is bound to
@@ -111,18 +145,41 @@ public:
     unsigned short port() const { return _acceptor.local_endpoint().port(); }
 
 private:
-    void async_start_accept();
+    mutable std::mutex _mutex;
+
+    void set_flag_thread_safe(TcpServerState state)
+    {
+        std::unique_lock<std::mutex> lock(_mutex);
+        _flags.set_flag(state);
+    }
+
+    void clear_flag_thread_safe(TcpServerState state)
+    {
+        std::unique_lock<std::mutex> lock(_mutex);
+        _flags.clear_flag(state);
+    }
+
+    bool get_flag_thread_safe(TcpServerState state) const
+    {
+        std::unique_lock<std::mutex> lock(_mutex);
+        return _flags.get_flag(state);
+    }
+
+    // Internal methods that run on io_context thread
+    void start();
+    void stop();
+    void async_accept();
     void handle_accept(const boost::system::error_code& error_code, boost::asio::ip::tcp::socket socket);
 
     boost::asio::io_context& _io_context;
     boost::asio::ip::tcp::acceptor _acceptor;
+    boost::asio::ip::tcp::endpoint _cached_local_endpoint; // Cache endpoint to safely access after close
     std::size_t _receive_buffer_size;
     std::size_t _send_buffer_size;
     ConnectionCallback _connection_callback;
-    StoppedCallback _pending_stopped_callback;
+    StoppedCallback _stopped_callback;
 
-    bool _is_running;
-    std::mutex _mutex;
+    Flags<TcpServerState> _flags;
 };
 
 // Template implementation
@@ -132,9 +189,9 @@ TcpServer<ReceiveBuffer, SendBuffer>::TcpServer(boost::asio::io_context& io_cont
                                                 std::size_t send_buffer_size)
     : _io_context(io_context)
     , _acceptor(io_context, boost::asio::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), port))
+    , _cached_local_endpoint(_acceptor.local_endpoint())
     , _receive_buffer_size(receive_buffer_size)
     , _send_buffer_size(send_buffer_size)
-    , _is_running(false)
 {
 }
 
@@ -143,45 +200,85 @@ TcpServer<ReceiveBuffer, SendBuffer>::TcpServer(boost::asio::io_context& io_cont
                                                 std::size_t receive_buffer_size, std::size_t send_buffer_size)
     : _io_context(io_context)
     , _acceptor(io_context, endpoint)
+    , _cached_local_endpoint(_acceptor.local_endpoint())
     , _receive_buffer_size(receive_buffer_size)
     , _send_buffer_size(send_buffer_size)
-    , _is_running(false)
 {
+}
+
+template <typename ReceiveBuffer, typename SendBuffer>
+TcpServer<ReceiveBuffer, SendBuffer>::~TcpServer()
+{
+    async_stop();
+    // Wait for async operations to complete
+    while (get_flag_thread_safe(TcpServerState::accepting) || get_flag_thread_safe(TcpServerState::stopping))
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpServer<ReceiveBuffer, SendBuffer>::async_start()
 {
-    std::unique_lock<std::mutex> lock(_mutex);
-
-    if (_is_running)
-    {
-        return;
-    }
-
-    _is_running = true;
-    async_start_accept();
+    // Post to io_context to avoid race conditions
+    // Capture 'this' safely - the caller must keep the server alive
+    boost::asio::post(_io_context, [this]() { this->start(); });
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
-void TcpServer<ReceiveBuffer, SendBuffer>::async_stop(StoppedCallback callback)
+void TcpServer<ReceiveBuffer, SendBuffer>::start()
 {
+    // Runs on io_context thread
     std::unique_lock<std::mutex> lock(_mutex);
 
-    if (!_is_running)
+    if (_flags.get_flag(TcpServerState::accepting))
+    {
+        return;
+    }
+    _flags.set_flag(TcpServerState::accepting);
+
+    async_accept();
+}
+
+template <typename ReceiveBuffer, typename SendBuffer>
+void TcpServer<ReceiveBuffer, SendBuffer>::async_stop()
+{
+    // Post to io_context to avoid race conditions
+    // Capture 'this' safely - the caller must keep the server alive
+    try
+    {
+        boost::asio::post(_io_context, [this]() { this->stop(); });
+    }
+    catch (const std::exception& ex)
+    {
+        EESTV_LOG_ERROR("async_stop: exception posting to io_context: " << ex.what());
+    }
+    catch (...)
+    {
+        EESTV_LOG_ERROR("async_stop: unknown exception posting to io_context");
+    }
+}
+
+template <typename ReceiveBuffer, typename SendBuffer>
+void TcpServer<ReceiveBuffer, SendBuffer>::stop()
+{
+    // Runs on io_context thread
+    std::unique_lock<std::mutex> lock(_mutex);
+
+    if (!_flags.get_flag(TcpServerState::accepting))
     {
         return;
     }
 
-    _pending_stopped_callback = std::move(callback);
+    _flags.set_flag(TcpServerState::stopping);
 
     boost::system::error_code error_code;
-    //Even though the docs say it will cancel immediately, that is not true. It cancels immediately **on the io_context's thread**
+    // Even though the docs say it will cancel immediately, that is not true. It cancels immediately **on the io_context's thread**
     _acceptor.close(error_code);
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
-void TcpServer<ReceiveBuffer, SendBuffer>::async_start_accept()
+void TcpServer<ReceiveBuffer, SendBuffer>::async_accept()
 {
     _acceptor.async_accept([this](const boost::system::error_code& error_code, boost::asio::ip::tcp::socket socket)
                            { handle_accept(error_code, std::move(socket)); });
@@ -196,42 +293,37 @@ void TcpServer<ReceiveBuffer, SendBuffer>::handle_accept(const boost::system::er
     {
         if (error_code == boost::asio::error::operation_aborted)
         {
-            EESTV_LOG_INFO("Server stopped with operation_aborted on endpoint " << _acceptor.local_endpoint().address().to_string() << ":"
-                                                                                << _acceptor.local_endpoint().port());
+            EESTV_LOG_INFO("Server stopped with operation_aborted on endpoint " << _cached_local_endpoint.address().to_string() << ":"
+                                                                                << _cached_local_endpoint.port());
         }
         else
         {
             EESTV_LOG_ERROR("Accept operation failed " << error_code.message() << " (code=" << error_code.value()
                                                        << ", category=" << error_code.category().name() << ") "
-                                                       << "on endpoint " << _acceptor.local_endpoint().address().to_string() << " : "
-                                                       << _acceptor.local_endpoint().port());
+                                                       << "on endpoint " << _cached_local_endpoint.address().to_string() << " : "
+                                                       << _cached_local_endpoint.port());
         }
 
-        _is_running = false;
+        _flags.clear_flag(TcpServerState::accepting);
+        _flags.clear_flag(TcpServerState::stopping);
 
-        // Post stopped callback to io_context for immediate execution
-        if (_pending_stopped_callback)
+        if (_stopped_callback)
         {
-            boost::asio::post(_io_context,
-                              [callback = std::move(_pending_stopped_callback)]()
-                              {
-                                  EESTV_LOG_INFO("The server has stopped. ");
-                                  callback();
-                              });
-            _pending_stopped_callback = nullptr;
+            EESTV_LOG_INFO("The server has stopped. ");
+            _stopped_callback();
         }
 
         return;
     }
 
     auto connection =
-        std::make_shared<TcpConnection<ReceiveBuffer, SendBuffer>>(std::move(socket), _io_context, _receive_buffer_size, _send_buffer_size);
+        std::make_unique<TcpConnection<ReceiveBuffer, SendBuffer>>(std::move(socket), _io_context, _receive_buffer_size, _send_buffer_size);
     if (_connection_callback)
     {
-        _connection_callback(connection);
+        _connection_callback(std::move(connection));
     }
 
-    async_start_accept();
+    async_accept();
 }
 
 } // namespace eestv

@@ -7,12 +7,12 @@ namespace eestv
 {
 
 template <typename FlagType>
-class SynchronousFlags
+class Flags
 {
     static_assert(std::is_enum<FlagType>::value, "FlagType must be an enum");
 
 public:
-    SynchronousFlags() = default;
+    Flags() = default;
 
     /**
      * Set a specific flag bit
