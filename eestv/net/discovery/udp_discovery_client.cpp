@@ -44,7 +44,7 @@ void UdpDiscoveryClient::stop()
 
 void UdpDiscoveryClient::send_discovery_request()
 {
-    std::unique_lock<std::mutex> _lock(_mutex);
+    // std::unique_lock<std::mutex> _lock(_mutex);
 
     if (!_running)
         return;
