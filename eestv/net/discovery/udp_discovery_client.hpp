@@ -1,6 +1,7 @@
 #pragma once
 
 #include "boost/asio.hpp"
+#include <mutex>
 #include <string>
 #include <chrono>
 #include <array>
@@ -17,6 +18,7 @@ public:
     void stop();
 
 private:
+    std::mutex _mutex;
     void send_discovery_request();
     void handle_response(const boost::system::error_code& error, std::size_t bytes_transferred);
     void handle_timeout(const boost::system::error_code& error);
