@@ -1,5 +1,6 @@
 #include "udp_discovery_client.hpp"
 #include <iostream>
+#include <mutex>
 
 UdpDiscoveryClient::UdpDiscoveryClient(
     boost::asio::io_context& io_context, const std::string& service_name, std::chrono::milliseconds retry_timeout, int port,
@@ -20,6 +21,7 @@ UdpDiscoveryClient::UdpDiscoveryClient(
 
 void UdpDiscoveryClient::start()
 {
+    std::unique_lock<std::mutex> _lock(_mutex);
     if (_running)
         return;
 
@@ -34,6 +36,7 @@ void UdpDiscoveryClient::start()
 
 void UdpDiscoveryClient::stop()
 {
+    std::unique_lock<std::mutex> _lock(_mutex);
     _running = false;
     _timer.cancel();
     _socket.cancel();
@@ -41,6 +44,8 @@ void UdpDiscoveryClient::stop()
 
 void UdpDiscoveryClient::send_discovery_request()
 {
+    std::unique_lock<std::mutex> _lock(_mutex);
+
     if (!_running)
         return;
 
@@ -67,6 +72,8 @@ void UdpDiscoveryClient::send_discovery_request()
 
 void UdpDiscoveryClient::handle_response(const boost::system::error_code& error, std::size_t bytes_transferred)
 {
+    std::unique_lock<std::mutex> _lock(_mutex);
+
     if (!_running)
         return;
 
@@ -105,6 +112,8 @@ void UdpDiscoveryClient::handle_response(const boost::system::error_code& error,
 
 void UdpDiscoveryClient::handle_timeout(const boost::system::error_code& error)
 {
+    std::unique_lock<std::mutex> _lock(_mutex);
+
     if (!_running || error == boost::asio::error::operation_aborted)
     {
         return;
