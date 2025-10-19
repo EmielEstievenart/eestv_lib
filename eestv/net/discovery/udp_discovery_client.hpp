@@ -22,6 +22,11 @@ public:
 
     ~UdpDiscoveryClient();
 
+    UdpDiscoveryClient(const UdpDiscoveryClient&)            = delete;
+    UdpDiscoveryClient& operator=(const UdpDiscoveryClient&) = delete;
+    UdpDiscoveryClient(UdpDiscoveryClient&&)                 = delete;
+    UdpDiscoveryClient& operator=(UdpDiscoveryClient&&)      = delete;
+
     bool async_start();
     bool async_stop(std::function<void()> on_stopped);
     void stop();
