@@ -1,6 +1,13 @@
-#include "udp_discovery_client.hpp"
-#include <iostream>
+#include "eestv/net/discovery/udp_discovery_client.hpp"
+#include "boost/asio/post.hpp"
+#include <algorithm>
+#include <atomic>
 #include <mutex>
+#include "eestv/logging/eestv_logging.hpp"
+#include "eestv/net/discovery/discovery_states.hpp"
+
+namespace eestv
+{
 
 UdpDiscoveryClient::UdpDiscoveryClient(
     boost::asio::io_context& io_context, const std::string& service_name, std::chrono::milliseconds retry_timeout, int port,
@@ -9,127 +16,218 @@ UdpDiscoveryClient::UdpDiscoveryClient(
     , _service_name(service_name)
     , _retry_timeout(retry_timeout)
     , _port(port)
-    , _response_handler(std::move(response_handler))
+    , _on_response(std::move(response_handler))
     , _socket(io_context, boost::asio::ip::udp::v4())
     , _timer(io_context)
     , _recv_buffer()
-    , _running(false)
 {
     _socket.set_option(boost::asio::ip::multicast::outbound_interface(boost::asio::ip::address_v4::any()));
     _socket.set_option(boost::asio::socket_base::broadcast(true));
 }
 
-void UdpDiscoveryClient::start()
+UdpDiscoveryClient::~UdpDiscoveryClient()
 {
-    std::unique_lock<std::mutex> _lock(_mutex);
-    if (_running)
-        return;
+    stop();
+};
 
-    _running = true;
+bool UdpDiscoveryClient::async_start()
+{
+    {
+        std::unique_lock<std::mutex> lock(_mutex);
+        if (_flags.get_flag(UdpDiscoveryState::running) || _flags.get_flag(UdpDiscoveryState::stopping))
+        {
+            return false;
+        }
 
-    send_discovery_request();
+        _flags.set_flag(UdpDiscoveryState::running);
+    }
 
-    // Set up the retry timer
-    _timer.expires_after(_retry_timeout);
-    _timer.async_wait([this](const boost::system::error_code& error) { handle_timeout(error); });
+    boost::asio::post(_io_context,
+                      [this]()
+                      {
+                          std::unique_lock<std::mutex> my_lock(_mutex);
+                          if (!_flags.get_flag(UdpDiscoveryState::stopping))
+                          {
+                              _flags.set_flag(UdpDiscoveryState::receiving_async);
+                              _socket.async_receive_from(boost::asio::buffer(_recv_buffer), _remote_endpoint,
+                                                         [this](const boost::system::error_code& error, std::size_t bytes_transferred)
+                                                         { handle_response(error, bytes_transferred); });
+                              send_discovery_request();
+                          }
+                          else
+                          {
+                              resolve_on_stopped();
+                          }
+                      });
+
+    return true;
+}
+
+bool UdpDiscoveryClient::async_stop(std::function<void()> on_stopped)
+{
+    {
+        std::unique_lock<std::mutex> lock(_mutex);
+        if (_flags.get_flag(UdpDiscoveryState::stopping))
+        {
+            return false;
+        }
+
+        _flags.set_flag(UdpDiscoveryState::stopping);
+        _on_stopped = std::move(on_stopped);
+    }
+
+    //post a lambda to the context
+    boost::asio::post(_io_context,
+                      [this]()
+                      {
+                          std::unique_lock<std::mutex> my_lock(_mutex);
+                          if (_flags.get_flag(UdpDiscoveryState::running))
+                          {
+                              _timer.cancel();
+                              _socket.cancel();
+                          }
+                          else
+                          {
+                              if (_on_stopped)
+                              {
+                                  _on_stopped();
+                              }
+                          }
+                      });
+
+    return true;
 }
 
 void UdpDiscoveryClient::stop()
 {
-    std::unique_lock<std::mutex> _lock(_mutex);
-    _running = false;
-    _timer.cancel();
-    _socket.cancel();
+    std::atomic_bool stopped = false;
+    if (async_stop([&stopped]() { stopped = true; }))
+    {
+        while (!stopped)
+        {
+        }
+    }
 }
 
 void UdpDiscoveryClient::send_discovery_request()
 {
-    // std::unique_lock<std::mutex> _lock(_mutex);
-
-    if (!_running)
-        return;
-
-    // Set up broadcast endpoint (assuming standard discovery port)
-
     boost::asio::ip::udp::endpoint broadcast_endpoint(boost::asio::ip::make_address("255.255.255.255"), _port);
 
-    // Send the service name as the discovery request
+    _flags.set_flag(UdpDiscoveryState::sending_async);
     _socket.async_send_to(boost::asio::buffer(_service_name), broadcast_endpoint,
-                          [this](const boost::system::error_code& error, std::size_t bytes_transferred)
-                          {
-                              if (error)
-                              {
-                                  std::cerr << "Failed to send discovery request: " << error.message() << std::endl;
-                                  return;
-                              }
+                          [this](const boost::system::error_code& error_code, std::size_t) { handle_send_complete(error_code); });
+};
 
-                              // After sending, start listening for responses
-                              _socket.async_receive_from(boost::asio::buffer(_recv_buffer), _remote_endpoint,
-                                                         [this](const boost::system::error_code& error, std::size_t bytes_transferred)
-                                                         { handle_response(error, bytes_transferred); });
-                          });
+void UdpDiscoveryClient::handle_send_complete(const boost::system::error_code& error_code)
+{
+    std::unique_lock<std::mutex> lock(_mutex);
+    if (error_code)
+    {
+        if (error_code == boost::asio::error::operation_aborted)
+        {
+            EESTV_LOG_INFO("Discovery request sending aborted.");
+        }
+        else
+        {
+            EESTV_LOG_ERROR("Failed to send discovery request: " << error_code.message());
+        }
+    }
+    else
+    {
+        if (!_flags.get_flag(UdpDiscoveryState::stopping))
+        {
+            _flags.set_flag(UdpDiscoveryState::timer_running);
+            _timer.expires_after(_retry_timeout);
+            _timer.async_wait([this](const boost::system::error_code& error_code) { handle_timeout(error_code); });
+        }
+    }
+    _flags.clear_flag(UdpDiscoveryState::sending_async);
+    resolve_on_stopped();
 }
 
-void UdpDiscoveryClient::handle_response(const boost::system::error_code& error, std::size_t bytes_transferred)
+void UdpDiscoveryClient::handle_response(const boost::system::error_code& error_code, std::size_t bytes_transferred)
 {
-    std::unique_lock<std::mutex> _lock(_mutex);
-
-    if (!_running)
-        return;
-
-    if (!error && bytes_transferred > 0)
+    std::unique_lock<std::mutex> lock(_mutex);
+    if (error_code)
+    {
+        if (error_code == boost::asio::error::operation_aborted)
+        {
+            EESTV_LOG_INFO("Discovery response receiving aborted.");
+        }
+        else
+        {
+            EESTV_LOG_ERROR("Error receiving discovery response: " << error_code.message());
+        }
+    }
+    else if (bytes_transferred > 0)
     {
         // We received a response
         std::string response(_recv_buffer.data(), bytes_transferred);
-        std::cout << "Discovery response from " << _remote_endpoint << ": " << response << std::endl;
-        if (_response_handler)
+        EESTV_LOG_INFO("Discovery response from " << _remote_endpoint << ": " << response);
+        if (_on_response)
         {
             // Call the response handler with the received response and remote endpoint
-            if (_response_handler(response, _remote_endpoint))
+            if (_on_response(response, _remote_endpoint))
             {
-                std::cout << "Response handled successfully." << std::endl;
-                _timer.cancel();
+                EESTV_LOG_DEBUG("Response handled successfully.");
             }
             else
             {
-                std::cout << "Response handling failed." << std::endl;
+                EESTV_LOG_DEBUG("Response handling failed.");
+            }
+            _socket.async_receive_from(boost::asio::buffer(_recv_buffer), _remote_endpoint,
+                                       [this](const boost::system::error_code& error, std::size_t bytes_transferred)
+                                       { handle_response(error, bytes_transferred); });
+        }
+    }
+    _flags.clear_flag(UdpDiscoveryState::receiving_async);
+    resolve_on_stopped();
+}
+
+void UdpDiscoveryClient::handle_timeout(const boost::system::error_code& error_code)
+{
+    std::unique_lock<std::mutex> lock(_mutex);
+
+    if (error_code)
+    {
+        if (error_code == boost::asio::error::operation_aborted)
+        {
+            EESTV_LOG_INFO("Timer operation aborted.");
+        }
+        else
+        {
+
+            EESTV_LOG_ERROR("Timer error: " << error_code.message());
+        }
+    }
+    else
+    {
+        EESTV_LOG_INFO("Retry timeout expired, sending discovery request for: " << _service_name);
+        send_discovery_request();
+    }
+    _flags.clear_flag(UdpDiscoveryState::timer_running);
+    resolve_on_stopped();
+}
+
+void UdpDiscoveryClient::resolve_on_stopped()
+{
+    if (_flags.get_flag(UdpDiscoveryState::stopping))
+    {
+        if (!_flags.get_flag(UdpDiscoveryState::receiving_async) && !_flags.get_flag(UdpDiscoveryState::sending_async) &&
+            !_flags.get_flag(UdpDiscoveryState::timer_running))
+        {
+
+            if (_on_stopped)
+            {
+                boost::asio::post(_io_context, std::move(_on_stopped));
             }
         }
-
-        // You might want to add a callback here to notify the application
-        // about the discovered service and its response
-
-        // Cancel the retry timer since we got a response
-
-        // Optionally, you could stop here if you only need one response
-        // or continue listening for more services
     }
-    else if (error != boost::asio::error::operation_aborted)
-    {
-        std::cerr << "Error receiving discovery response: " << error.message() << std::endl;
-    }
-}
+};
 
-void UdpDiscoveryClient::handle_timeout(const boost::system::error_code& error)
+void UdpDiscoveryClient::reset()
 {
-    std::unique_lock<std::mutex> _lock(_mutex);
-
-    if (!_running || error == boost::asio::error::operation_aborted)
-    {
-        return;
-    }
-
-    if (error)
-    {
-        std::cerr << "Timer error: " << error.message() << std::endl;
-        return;
-    }
-
-    // Retry timeout expired, send another discovery request
-    std::cout << "Retry timeout expired, sending discovery request for: " << _service_name << std::endl;
-    send_discovery_request();
-
-    // Reset the timer for the next retry
-    _timer.expires_after(_retry_timeout);
-    _timer.async_wait([this](const boost::system::error_code& error) { handle_timeout(error); });
-}
+    std::unique_lock<std::mutex> lock(_mutex);
+    _flags.clear_all();
+};
+} // namespace eestv

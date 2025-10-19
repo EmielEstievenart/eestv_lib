@@ -7,6 +7,9 @@
 #include <array>
 #include <mutex>
 
+namespace eestv
+{
+
 class UdpDiscoveryServer
 {
 
@@ -72,3 +75,4 @@ private:
     mutable std::mutex _discoverables_mutex; // Add mutex for thread safety
     int _port;
 };
+} // namespace eestv

@@ -1,5 +1,7 @@
-#include "discoverable.hpp"
+#include "eestv/net/discovery/discoverable.hpp"
 
+namespace eestv
+{
 Discoverable::Discoverable(const std::string& identifier, std::function<std::string()> callback)
     : _identifier(identifier), _callback(callback)
 {
@@ -14,3 +16,5 @@ std::string Discoverable::get_reply() const
 {
     return _callback();
 }
+
+} // namespace eestv
