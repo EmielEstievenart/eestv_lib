@@ -1,5 +1,8 @@
-#include "udp_discovery_server.hpp"
+#include "eestv/net/discovery/udp_discovery_server.hpp"
 #include <iostream>
+
+namespace eestv
+{
 
 UdpDiscoveryServer::UdpDiscoveryServer(boost::asio::io_context& io_context, int port)
     : _io_context(io_context), _socket(io_context, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), port)), _port(port)
@@ -82,3 +85,4 @@ void UdpDiscoveryServer::handle_send(const boost::system::error_code& error, std
     }
     // Send operation completed, no further action needed
 }
+} // namespace eestv

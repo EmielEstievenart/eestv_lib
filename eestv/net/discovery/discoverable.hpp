@@ -3,6 +3,9 @@
 #include <string>
 #include <functional>
 
+namespace eestv
+{
+
 /**
  * @brief Represent a service that can be discovered on the network.
  *
@@ -29,3 +32,4 @@ private:
     std::string _identifier;
     std::function<std::string()> _callback;
 };
+} // namespace eestv

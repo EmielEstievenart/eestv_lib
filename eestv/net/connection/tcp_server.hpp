@@ -2,6 +2,7 @@
 
 #include "eestv/net/connection/tcp_connection.hpp"
 #include "eestv/logging/eestv_logging.hpp"
+#include "eestv/net/connection/tcp_server_states.hpp"
 #include "eestv/flags/flags.hpp"
 
 #include <boost/asio.hpp>
@@ -13,24 +14,6 @@
 
 namespace eestv
 {
-
-enum class TcpServerState
-{
-    accepting,
-    closing
-};
-
-inline const char* to_string(TcpServerState state) noexcept
-{
-    switch (state)
-    {
-    case TcpServerState::accepting:
-        return "accepting";
-    case TcpServerState::closing:
-        return "closing";
-    }
-    return "unknown";
-}
 
 /**
  * @brief TCP server that accepts connections and creates TcpConnection instances
