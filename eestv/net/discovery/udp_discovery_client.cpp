@@ -17,7 +17,7 @@ UdpDiscoveryClient::UdpDiscoveryClient(
     , _retry_timeout(retry_timeout)
     , _port(port)
     , _on_response(std::move(response_handler))
-    , _socket(io_context, boost::asio::ip::udp::v4())
+    , _socket(io_context, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), 0))
     , _timer(io_context)
     , _recv_buffer()
 {
