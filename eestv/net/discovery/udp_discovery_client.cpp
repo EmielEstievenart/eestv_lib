@@ -90,7 +90,7 @@ bool UdpDiscoveryClient::async_stop(std::function<void()> on_stopped)
                           {
                               if (_on_stopped)
                               {
-                                  _on_stopped();
+                                  boost::asio::post(_io_context, std::move(_on_stopped));
                               }
                           }
                       });
