@@ -15,16 +15,6 @@
 namespace eestv
 {
 
-/**
- * @brief TCP server that accepts connections and creates TcpConnection instances
- * 
- * The TcpServer listens on a specified port and automatically accepts incoming
- * connections. Each accepted connection is wrapped in a TcpConnection and
- * passed to a user-provided callback.
- * 
- * @tparam ReceiveBuffer The buffer type to use for receiving data in TcpConnection instances
- * @tparam SendBuffer The buffer type to use for sending data in TcpConnection instances
- */
 template <typename ReceiveBuffer = LinearBuffer, typename SendBuffer = LinearBuffer>
 class TcpServer
 {
@@ -64,67 +54,22 @@ public:
     TcpServer(TcpServer&&)                 = delete;
     TcpServer& operator=(TcpServer&&)      = delete;
 
-    /**
-     * @brief Set the callback for new connections
-     * 
-     * This callback is invoked whenever a new client connects.
-     * 
-     * @param callback Function to call with each new TcpConnection
-     */
     void set_connection_callback(ConnectionCallback callback)
     {
         std::unique_lock<std::mutex> lock(_mutex);
         _connection_callback = std::move(callback);
     }
 
-    /**
-     * @brief Set the callback for when the server stops
-     * 
-     * This callback is invoked when the server has fully stopped accepting connections.
-     * 
-     * @param callback Function to call when the server stops
-     */
-    void set_stopped_callback(StoppedCallback callback)
-    {
-        std::unique_lock<std::mutex> lock(_mutex);
-        _stopped_callback = std::move(callback);
-    }
+    bool async_start();
 
-    /**
-     * @brief Start accepting connections (posts to io_context)
-     * 
-     * Begins listening for and accepting new connections.
-     * This operation is posted to the io_context to avoid race conditions.
-     */
-    void async_start();
+    bool async_stop(StoppedCallback on_stopped = nullptr);
 
-    /**
-     * @brief Stop accepting connections (posts to io_context)
-     * 
-     * Stops the acceptor and closes any pending accept operations.
-     * This operation is posted to the io_context to avoid race conditions.
-     */
-    void async_stop();
+    void stop();
 
-    /**
-     * @brief Check if the server is currently accepting connections
-     * 
-     * @return true if accepting, false otherwise
-     */
     bool is_running() const { return get_flag_thread_safe(TcpServerState::accepting); }
 
-    /**
-     * @brief Get the local endpoint the server is bound to
-     * 
-     * @return The local endpoint (address and port)
-     */
     boost::asio::ip::tcp::endpoint local_endpoint() const { return _acceptor.local_endpoint(); }
 
-    /**
-     * @brief Get the port the server is listening on
-     * 
-     * @return The port number
-     */
     unsigned short port() const { return _acceptor.local_endpoint().port(); }
 
 private:
@@ -149,9 +94,10 @@ private:
     }
 
     // Internal methods that run on io_context thread
-    void stop();
+
     void async_accept();
     void handle_accept(const boost::system::error_code& error_code, boost::asio::ip::tcp::socket socket);
+    void resolve_on_stopped();
 
     boost::asio::io_context& _io_context;
     boost::asio::ip::tcp::acceptor _acceptor;
@@ -191,50 +137,82 @@ TcpServer<ReceiveBuffer, SendBuffer>::TcpServer(boost::asio::io_context& io_cont
 template <typename ReceiveBuffer, typename SendBuffer>
 TcpServer<ReceiveBuffer, SendBuffer>::~TcpServer()
 {
-    async_stop();
-
-    while (get_flag_thread_safe(TcpServerState::accepting) || get_flag_thread_safe(TcpServerState::closing))
-    {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
+    stop();
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
-void TcpServer<ReceiveBuffer, SendBuffer>::async_start()
+bool TcpServer<ReceiveBuffer, SendBuffer>::async_start()
 {
-    std::unique_lock<std::mutex> lock(_mutex);
-    if (!_flags.get_flag(TcpServerState::accepting))
     {
+        std::unique_lock<std::mutex> lock(_mutex);
+        if (_flags.get_flag(TcpServerState::accepting) || _flags.get_flag(TcpServerState::closing))
+        {
+            return false;
+        }
         _flags.set_flag(TcpServerState::accepting);
-        boost::asio::post(_io_context, [this]() { this->async_accept(); });
     }
+
+    boost::asio::post(_io_context, [this]() { this->async_accept(); });
+    return true;
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
-void TcpServer<ReceiveBuffer, SendBuffer>::async_stop()
+bool TcpServer<ReceiveBuffer, SendBuffer>::async_stop(StoppedCallback on_stopped)
 {
-    std::unique_lock<std::mutex> lock(_mutex);
-    if (!_flags.get_flag(TcpServerState::closing) && _flags.get_flag(TcpServerState::accepting))
     {
+        std::unique_lock<std::mutex> lock(_mutex);
+        if (_flags.get_flag(TcpServerState::closing) || !_flags.get_flag(TcpServerState::accepting))
+        {
+            return false;
+        }
         _flags.set_flag(TcpServerState::closing);
-        boost::asio::post(_io_context, [this]() { this->stop(); });
+        _stopped_callback = std::move(on_stopped);
     }
+
+    boost::asio::post(_io_context,
+                      [this]()
+                      {
+                          std::unique_lock<std::mutex> lock(_mutex);
+                          boost::system::error_code error_code;
+                          if (_flags.get_flag(TcpServerState::accepting))
+                          {
+                              // Even though the docs say it will cancel immediately, that is not true. It cancels immediately **on the io_context's thread**
+                              _acceptor.close(error_code);
+                          }
+                          else
+                          {
+                              resolve_on_stopped();
+                          }
+                      });
+    return true;
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpServer<ReceiveBuffer, SendBuffer>::stop()
 {
-    std::unique_lock<std::mutex> lock(_mutex);
-    boost::system::error_code error_code;
-    // Even though the docs say it will cancel immediately, that is not true. It cancels immediately **on the io_context's thread**
-    _acceptor.close(error_code);
+    std::atomic_bool stopped = false;
+    if (async_stop([&stopped]() { stopped = true; }))
+    {
+        while (!stopped)
+        {
+        }
+    }
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpServer<ReceiveBuffer, SendBuffer>::async_accept()
 {
-    _acceptor.async_accept([this](const boost::system::error_code& error_code, boost::asio::ip::tcp::socket socket)
-                           { handle_accept(error_code, std::move(socket)); });
+    std::unique_lock<std::mutex> lock(_mutex);
+    if (!_flags.get_flag(TcpServerState::closing))
+    {
+        _acceptor.async_accept([this](const boost::system::error_code& error_code, boost::asio::ip::tcp::socket socket)
+                               { handle_accept(error_code, std::move(socket)); });
+    }
+    else
+    {
+        _flags.clear_flag(TcpServerState::accepting);
+        resolve_on_stopped();
+    }
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
@@ -256,27 +234,40 @@ void TcpServer<ReceiveBuffer, SendBuffer>::handle_accept(const boost::system::er
                                                        << "on endpoint " << _cached_local_endpoint.address().to_string() << " : "
                                                        << _cached_local_endpoint.port());
         }
-
         _flags.clear_flag(TcpServerState::accepting);
-        _flags.clear_flag(TcpServerState::closing);
-
-        if (_stopped_callback)
+        resolve_on_stopped();
+    }
+    else
+    {
+        auto connection = std::make_unique<TcpConnection<ReceiveBuffer, SendBuffer>>(std::move(socket), _io_context, _receive_buffer_size,
+                                                                                     _send_buffer_size);
+        if (_connection_callback)
         {
-            EESTV_LOG_INFO("The server has stopped. ");
-            _stopped_callback();
+            _connection_callback(std::move(connection));
         }
 
-        return;
+        if (!_flags.get_flag(TcpServerState::closing))
+        {
+            async_accept();
+        }
+        else
+        {
+            _flags.clear_flag(TcpServerState::accepting);
+            resolve_on_stopped();
+        }
     }
+}
 
-    auto connection =
-        std::make_unique<TcpConnection<ReceiveBuffer, SendBuffer>>(std::move(socket), _io_context, _receive_buffer_size, _send_buffer_size);
-    if (_connection_callback)
+template <typename ReceiveBuffer, typename SendBuffer>
+void TcpServer<ReceiveBuffer, SendBuffer>::resolve_on_stopped()
+{
+    if (_flags.get_flag(TcpServerState::closing) && !_flags.get_flag(TcpServerState::accepting))
     {
-        _connection_callback(std::move(connection));
+        if (_stopped_callback)
+        {
+            boost::asio::post(_io_context, std::move(_stopped_callback));
+        }
     }
-
-    async_accept();
 }
 
 } // namespace eestv
