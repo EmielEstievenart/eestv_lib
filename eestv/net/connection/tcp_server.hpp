@@ -62,7 +62,7 @@ public:
 
     bool async_start();
 
-    bool async_stop(StoppedCallback on_stopped = nullptr);
+    bool async_stop(StoppedCallback on_stopped);
 
     void stop();
 
@@ -143,38 +143,38 @@ TcpServer<ReceiveBuffer, SendBuffer>::~TcpServer()
 template <typename ReceiveBuffer, typename SendBuffer>
 bool TcpServer<ReceiveBuffer, SendBuffer>::async_start()
 {
+    std::unique_lock<std::mutex> lock(_mutex);
+    if (_flags.get_flag(TcpServerState::start_signaled) || _flags.get_flag(TcpServerState::stopping))
     {
-        std::unique_lock<std::mutex> lock(_mutex);
-        if (_flags.get_flag(TcpServerState::accepting) || _flags.get_flag(TcpServerState::closing))
-        {
-            return false;
-        }
-        _flags.set_flag(TcpServerState::accepting);
+        return false;
     }
-
+    _flags.set_flag(TcpServerState::start_signaled);
+    _flags.set_flag(TcpServerState::starting_accept);
     boost::asio::post(_io_context, [this]() { this->async_accept(); });
+
     return true;
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
 bool TcpServer<ReceiveBuffer, SendBuffer>::async_stop(StoppedCallback on_stopped)
 {
+    std::unique_lock<std::mutex> lock(_mutex);
+    if (_flags.get_flag(TcpServerState::stop_signaled) || !_flags.get_flag(TcpServerState::start_signaled))
     {
-        std::unique_lock<std::mutex> lock(_mutex);
-        if (_flags.get_flag(TcpServerState::closing) || !_flags.get_flag(TcpServerState::accepting))
-        {
-            return false;
-        }
-        _flags.set_flag(TcpServerState::closing);
-        _stopped_callback = std::move(on_stopped);
+        return false;
     }
+    _flags.set_flag(TcpServerState::stop_signaled);
+    _stopped_callback = std::move(on_stopped);
 
+    _flags.set_flag(TcpServerState::stopping);
     boost::asio::post(_io_context,
                       [this]()
                       {
                           std::unique_lock<std::mutex> lock(_mutex);
+                          _flags.set_flag(TcpServerState::stopping);
+
                           boost::system::error_code error_code;
-                          if (_flags.get_flag(TcpServerState::accepting))
+                          if (_acceptor.is_open())
                           {
                               // Even though the docs say it will cancel immediately, that is not true. It cancels immediately **on the io_context's thread**
                               _acceptor.close(error_code);
@@ -203,14 +203,15 @@ template <typename ReceiveBuffer, typename SendBuffer>
 void TcpServer<ReceiveBuffer, SendBuffer>::async_accept()
 {
     std::unique_lock<std::mutex> lock(_mutex);
-    if (!_flags.get_flag(TcpServerState::closing))
+    _flags.clear_flag(TcpServerState::starting_accept);
+    if (!_flags.get_flag(TcpServerState::stopping))
     {
+        _flags.set_flag(TcpServerState::accepting);
         _acceptor.async_accept([this](const boost::system::error_code& error_code, boost::asio::ip::tcp::socket socket)
                                { handle_accept(error_code, std::move(socket)); });
     }
     else
     {
-        _flags.clear_flag(TcpServerState::accepting);
         resolve_on_stopped();
     }
 }
@@ -246,7 +247,7 @@ void TcpServer<ReceiveBuffer, SendBuffer>::handle_accept(const boost::system::er
             _connection_callback(std::move(connection));
         }
 
-        if (!_flags.get_flag(TcpServerState::closing))
+        if (!_flags.get_flag(TcpServerState::stopping))
         {
             async_accept();
         }
@@ -261,11 +262,15 @@ void TcpServer<ReceiveBuffer, SendBuffer>::handle_accept(const boost::system::er
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpServer<ReceiveBuffer, SendBuffer>::resolve_on_stopped()
 {
-    if (_flags.get_flag(TcpServerState::closing) && !_flags.get_flag(TcpServerState::accepting))
+    if (!_flags.get_flag(TcpServerState::starting_accept) && !_flags.get_flag(TcpServerState::accepting))
     {
+        // Don't clear the closing flag - server cannot be restarted after being stopped
+        // because the acceptor is closed and can't be reopened
         if (_stopped_callback)
         {
-            boost::asio::post(_io_context, std::move(_stopped_callback));
+            auto callback     = std::move(_stopped_callback);
+            _stopped_callback = nullptr;
+            boost::asio::post(_io_context, std::move(callback));
         }
     }
 }
