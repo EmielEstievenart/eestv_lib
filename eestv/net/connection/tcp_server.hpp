@@ -149,8 +149,13 @@ bool TcpServer<ReceiveBuffer, SendBuffer>::async_start()
         return false;
     }
     _flags.set_flag(TcpServerState::start_signaled);
-    _flags.set_flag(TcpServerState::starting_accept);
-    boost::asio::post(_io_context, [this]() { this->async_accept(); });
+    _flags.set_flag(TcpServerState::start_accepting);
+    boost::asio::post(_io_context,
+                      [this]()
+                      {
+                          std::unique_lock<std::mutex> lock(_mutex);
+                          this->async_accept();
+                      });
 
     return true;
 }
@@ -177,7 +182,8 @@ bool TcpServer<ReceiveBuffer, SendBuffer>::async_stop(StoppedCallback on_stopped
                           if (_acceptor.is_open())
                           {
                               // Even though the docs say it will cancel immediately, that is not true. It cancels immediately **on the io_context's thread**
-                              _acceptor.close(error_code);
+                              //   _acceptor.close(error_code);
+                              _acceptor.cancel(error_code);
                           }
                           else
                           {
@@ -202,8 +208,7 @@ void TcpServer<ReceiveBuffer, SendBuffer>::stop()
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpServer<ReceiveBuffer, SendBuffer>::async_accept()
 {
-    std::unique_lock<std::mutex> lock(_mutex);
-    _flags.clear_flag(TcpServerState::starting_accept);
+    _flags.clear_flag(TcpServerState::start_accepting);
     if (!_flags.get_flag(TcpServerState::stopping))
     {
         _flags.set_flag(TcpServerState::accepting);
@@ -262,7 +267,7 @@ void TcpServer<ReceiveBuffer, SendBuffer>::handle_accept(const boost::system::er
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpServer<ReceiveBuffer, SendBuffer>::resolve_on_stopped()
 {
-    if (!_flags.get_flag(TcpServerState::starting_accept) && !_flags.get_flag(TcpServerState::accepting))
+    if (!_flags.get_flag(TcpServerState::start_accepting) && !_flags.get_flag(TcpServerState::accepting))
     {
         // Don't clear the closing flag - server cannot be restarted after being stopped
         // because the acceptor is closed and can't be reopened
