@@ -4,34 +4,33 @@ namespace eestv
 {
 enum class TcpConnectionState
 {
+    start_sending,
     sending,
+    start_receiving,
     receiving,
     closing,
-    connected,
-    monitoring,
-    lost,
-    dead
+    stop_signaled,
+    lost
 };
 
 inline const char* to_string(TcpConnectionState state) noexcept
 {
     switch (state)
     {
-    case TcpConnectionState::connected:
-        return "connected";
-    case TcpConnectionState::monitoring:
-        return "monitoring";
-    case TcpConnectionState::lost:
-        return "lost";
-    case TcpConnectionState::dead:
-        return "dead";
+    case TcpConnectionState::start_sending:
+        return "start_sending";
     case TcpConnectionState::sending:
         return "sending";
+    case TcpConnectionState::start_receiving:
+        return "start_receiving";
     case TcpConnectionState::receiving:
         return "receiving";
     case TcpConnectionState::closing:
         return "closing";
-        break;
+    case TcpConnectionState::stop_signaled:
+        return "stop_signaled";
+    case TcpConnectionState::lost:
+        return "lost";
     }
     return "unknown";
 }
