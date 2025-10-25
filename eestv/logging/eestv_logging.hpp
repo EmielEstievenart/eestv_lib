@@ -10,10 +10,11 @@ namespace logging
 
 enum class LogLevel
 {
-    Error = 0,
-    Info  = 1,
-    Debug = 2,
-    Trace = 3
+    Error   = 0,
+    Warning = 1,
+    Info    = 2,
+    Debug   = 3,
+    Trace   = 4
 };
 
 // Global log level variable
@@ -32,6 +33,8 @@ inline const char* get_log_level_name(LogLevel level)
     {
     case LogLevel::Error:
         return "ERROR";
+    case LogLevel::Warning:
+        return "WARNING";
     case LogLevel::Info:
         return "INFO";
     case LogLevel::Debug:
@@ -60,6 +63,18 @@ inline const char* get_log_level_name(LogLevel level)
                 << "\n";                                                                                                             \
             std::cout << oss.str();                                                                                                  \
         }                                                                                                                            \
+    } while (0)
+
+#define EESTV_LOG_WARNING(message)                                                                                                     \
+    do                                                                                                                                 \
+    {                                                                                                                                  \
+        if (eestv::logging::should_log(eestv::logging::LogLevel::Warning))                                                             \
+        {                                                                                                                              \
+            std::ostringstream oss;                                                                                                    \
+            oss << "[" << eestv::logging::get_log_level_name(eestv::logging::LogLevel::Warning) << "] " << __func__ << ": " << message \
+                << "\n";                                                                                                               \
+            std::cout << oss.str();                                                                                                    \
+        }                                                                                                                              \
     } while (0)
 
 #define EESTV_LOG_INFO(message)                                                                                                     \
