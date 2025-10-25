@@ -14,6 +14,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <thread>
 #include <utility>
 
@@ -41,6 +42,9 @@ public:
     ~TcpConnection();
 
     void set_connection_lost_callback(OnConnectionLostCallback callback) { _connection_lost_callback = std::move(callback); }
+    /*  Warning, the _data_received_callback will be called while holding a lock. 
+        DO NOT address the tcp connection whatsoever. 
+        If you must initiate something, post to the io_context. */
     void set_data_received_callback(OnDataReceivedCallback callback) { _data_received_callback = std::move(callback); }
 
     // Access to buffers for user code
@@ -79,7 +83,6 @@ private:
     void on_receive(const boost::system::error_code& error, std::size_t bytes_transferred);
     void on_send(const boost::system::error_code& error, std::size_t bytes_transferred);
 
-    std::chrono::steady_clock::time_point _last_receive_timepoint {std::chrono::steady_clock::now()};
     ReceiveBuffer _receive_buffer;
     SendBuffer _send_buffer;
     OnConnectionLostCallback _connection_lost_callback;
@@ -117,10 +120,11 @@ template <typename ReceiveBuffer, typename SendBuffer>
 bool TcpConnection<ReceiveBuffer, SendBuffer>::asycn_stop(StoppedCallback on_disconnected)
 {
     std::unique_lock<std::mutex> lock(_mutex);
-    if (!_flags.get_flag(TcpConnectionState::closing))
+    if (!_flags.get_flag(TcpConnectionState::stop_signaled))
     {
-        _disconnected_callback = std::move(on_disconnected);
+        _flags.set_flag(TcpConnectionState::stop_signaled);
         _flags.set_flag(TcpConnectionState::closing);
+        _disconnected_callback = std::move(on_disconnected);
         boost::asio::post(_io_context, [this]() { cancel_async_operations(); });
         return true;
     }
@@ -142,28 +146,21 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::stop()
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpConnection<ReceiveBuffer, SendBuffer>::resolve_on_stopped()
 {
-    if (!(_flags.get_flag(TcpConnectionState::closing) || _flags.get_flag(TcpConnectionState::start_sending)
-          || _flags.get_flag(TcpConnectionState::sending) || _flags.get_flag(TcpConnectionState::start_receiving)
-          || _flags.get_flag(TcpConnectionState::receiving)))
+    if (!(_flags.get_flag(TcpConnectionState::closing) || _flags.get_flag(TcpConnectionState::start_sending) ||
+          _flags.get_flag(TcpConnectionState::sending) || _flags.get_flag(TcpConnectionState::start_receiving) ||
+          _flags.get_flag(TcpConnectionState::receiving)))
     {
-        auto disconnected_callback    = std::move(_disconnected_callback);
-        auto connection_lost_callback = std::move(_connection_lost_callback);
-        _disconnected_callback        = nullptr;
-        _connection_lost_callback     = nullptr;
+        auto disconnected_callback = std::move(_disconnected_callback);
+        _disconnected_callback     = nullptr;
 
-        if (disconnected_callback || connection_lost_callback)
+        if (disconnected_callback)
         {
             boost::asio::post(_io_context,
-                              [disconnected_callback    = std::move(disconnected_callback),
-                               connection_lost_callback = std::move(connection_lost_callback)]() mutable
+                              [disconnected_callback = std::move(disconnected_callback)]() mutable
                               {
                                   if (disconnected_callback)
                                   {
                                       disconnected_callback();
-                                  }
-                                  if (connection_lost_callback)
-                                  {
-                                      connection_lost_callback();
                                   }
                               });
         }
@@ -191,18 +188,22 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::start_receiving()
 {
     std::unique_lock<std::mutex> lock(_mutex);
 
-    if (!(_flags.get_flag(TcpConnectionState::start_receiving) || _flags.get_flag(TcpConnectionState::receiving)
-          || _flags.get_flag(TcpConnectionState::stop_signaled)))
+    if (!(_flags.get_flag(TcpConnectionState::start_receiving) || _flags.get_flag(TcpConnectionState::receiving) ||
+          _flags.get_flag(TcpConnectionState::stop_signaled)))
     {
         _flags.set_flag(TcpConnectionState::start_receiving);
-        boost::asio::post(_io_context, [this]() { this->async_receive(); });
+        boost::asio::post(_io_context,
+                          [this]()
+                          {
+                              std::unique_lock<std::mutex> lock(_mutex);
+                              this->async_receive();
+                          });
     }
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpConnection<ReceiveBuffer, SendBuffer>::async_receive()
 {
-    std::unique_lock<std::mutex> lock(_mutex);
     _flags.clear_flag(TcpConnectionState::start_receiving);
     if (!_flags.get_flag(TcpConnectionState::stop_signaled))
     {
@@ -228,6 +229,7 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::async_receive()
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpConnection<ReceiveBuffer, SendBuffer>::on_receive(const boost::system::error_code& error_code, std::size_t bytes_transferred)
 {
+    std::unique_lock<std::mutex> lock(_mutex, std::defer_lock);
     if (error_code)
     {
         if (error_code == boost::asio::error::operation_aborted)
@@ -242,29 +244,37 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::on_receive(const boost::system::e
                                                         << "on endpoint " << _remote_endpoint.address().to_string() << " : "
                                                         << _remote_endpoint.port());
         }
+        lock.lock();
         _flags.clear_flag(TcpConnectionState::receiving);
+        if (_flags.get_flag(TcpConnectionState::stop_signaled))
+        {
+            resolve_on_stopped();
+        }
         if (_connection_lost_callback)
         {
-            _connection_lost_callback();
+            boost::asio::post(_io_context, [this]() { this->_connection_lost_callback(); });
         }
-        return;
     }
-
-    _receive_buffer.commit(bytes_transferred);
-    _last_receive_timepoint = std::chrono::steady_clock::now();
-    if (_data_received_callback != nullptr)
+    else
     {
-        _data_received_callback();
+        lock.lock();
+        _receive_buffer.commit(bytes_transferred);
+        if (_data_received_callback != nullptr)
+        {
+            // This function is called immediately because its important for the data structure to be behind a lock and usable.
+            // We must provide the user the possibility to consume all bytes and reset the linear datastructure before again reserving a  region.
+            _data_received_callback();
+        }
+        async_receive();
     }
-    async_receive();
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpConnection<ReceiveBuffer, SendBuffer>::start_sending()
 {
     std::unique_lock<std::mutex> lock(_mutex);
-    if (!(_flags.get_flag(TcpConnectionState::start_sending) || _flags.get_flag(TcpConnectionState::sending)
-          || _flags.get_flag(TcpConnectionState::stop_signaled)))
+    if (!(_flags.get_flag(TcpConnectionState::start_sending) || _flags.get_flag(TcpConnectionState::sending) ||
+          _flags.get_flag(TcpConnectionState::stop_signaled)))
     {
         _flags.set_flag(TcpConnectionState::start_sending);
 
@@ -295,18 +305,18 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::async_send()
     if (bytes_to_send == 0 || send_ptr == nullptr)
     {
         _flags.clear_flag(TcpConnectionState::sending);
-        return;
     }
-
-    boost::asio::async_write(_socket, boost::asio::buffer(send_ptr, bytes_to_send),
-                             [this](const boost::system::error_code& error_code, std::size_t bytes_transferred)
-                             { this->on_send(error_code, bytes_transferred); });
+    else
+    {
+        boost::asio::async_write(_socket, boost::asio::buffer(send_ptr, bytes_to_send),
+                                 [this](const boost::system::error_code& error_code, std::size_t bytes_transferred)
+                                 { this->on_send(error_code, bytes_transferred); });
+    }
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
 void TcpConnection<ReceiveBuffer, SendBuffer>::on_send(const boost::system::error_code& error_code, std::size_t bytes_transferred)
 {
-
     std::unique_lock<std::mutex> lock(_mutex, std::defer_lock);
     if (error_code)
     {
@@ -329,35 +339,22 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::on_send(const boost::system::erro
         {
             resolve_on_stopped();
         }
-        else
+        if (_connection_lost_callback)
         {
-            if (_connection_lost_callback)
-            {
-                boost::asio::post(_io_context, [this]() { this->_connection_lost_callback(); });
-            }
+            boost::asio::post(_io_context, [this]() { this->_connection_lost_callback(); });
         }
     }
     else
     {
         lock.lock();
-        if (_flags.get_flag(TcpConnectionState::stop_signaled))
+        _send_buffer.consume(bytes_transferred);
+        /*async_send clears the flag if nothing is left to be send*/
+        async_send();
+        if (!_flags.get_flag(TcpConnectionState::sending))
         {
-            _flags.clear_flag(TcpConnectionState::sending);
-            resolve_on_stopped();
-        }
-        else
-        {
-            _send_buffer.consume(bytes_transferred);
-
-            std::size_t remaining_size {0};
-            if (_send_buffer.get_read_head(remaining_size) != nullptr && remaining_size > 0)
+            if (_flags.get_flag(TcpConnectionState::stop_signaled))
             {
-                async_send();
-            }
-            else
-            {
-                //Sending has stopped, but not due to an error, so don't call the on stopped.
-                _flags.clear_flag(TcpConnectionState::sending);
+                resolve_on_stopped();
             }
         }
     }
