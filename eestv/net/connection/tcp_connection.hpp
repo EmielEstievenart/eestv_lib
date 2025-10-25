@@ -61,7 +61,7 @@ public:
     /*
     Stop doesn't close the socket, but it cancels the send and receive operations. This is the pre-cursor to closing the socket via the destruction of this object. 
     */
-    bool asycn_stop(StoppedCallback on_disconnected);
+    bool async_stop(StoppedCallback on_disconnected);
 
     void stop();
 
@@ -117,7 +117,7 @@ TcpConnection<ReceiveBuffer, SendBuffer>::~TcpConnection()
 }
 
 template <typename ReceiveBuffer, typename SendBuffer>
-bool TcpConnection<ReceiveBuffer, SendBuffer>::asycn_stop(StoppedCallback on_disconnected)
+bool TcpConnection<ReceiveBuffer, SendBuffer>::async_stop(StoppedCallback on_disconnected)
 {
     std::unique_lock<std::mutex> lock(_mutex);
     if (!_flags.get_flag(TcpConnectionState::stop_signaled))
@@ -135,7 +135,12 @@ template <typename ReceiveBuffer, typename SendBuffer>
 void TcpConnection<ReceiveBuffer, SendBuffer>::stop()
 {
     std::atomic_bool stopped = false;
-    if (asycn_stop([&stopped]() { stopped = true; }))
+    bool is_on_io_thread     = _io_context.get_executor().running_in_this_thread();
+    if (is_on_io_thread)
+    {
+        EESTV_LOG_WARNING("Stop called on io context. This isn't allowed! ");
+    }
+    else if (async_stop([&stopped]() { stopped = true; }))
     {
         while (!stopped)
         {

@@ -197,7 +197,12 @@ template <typename ReceiveBuffer, typename SendBuffer>
 void TcpServer<ReceiveBuffer, SendBuffer>::stop()
 {
     std::atomic_bool stopped = false;
-    if (async_stop([&stopped]() { stopped = true; }))
+    bool is_on_io_thread     = _io_context.get_executor().running_in_this_thread();
+    if (is_on_io_thread)
+    {
+        EESTV_LOG_WARNING("Stop called on io context. This isn't allowed! ");
+    }
+    else if (async_stop([&stopped]() { stopped = true; }))
     {
         while (!stopped)
         {
