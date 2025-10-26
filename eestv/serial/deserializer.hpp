@@ -6,28 +6,25 @@
 #include <type_traits>
 #include "eestv/serial/allowed_types.hpp"
 #include "eestv/serial/serialize_helper.hpp"
+#include "eestv/data/linear_buffer.hpp"
 
 namespace eestv
 {
 
 /**
- * @brief Deserializer that reads data from a storage policy
+ * @brief Deserializer that reads data directly from a LinearBuffer
  * 
- * The Storage type must provide:
- * - bool read(void* data, size_t size)
- * 
- * @tparam Storage The storage policy type (e.g., LinearBufferAdapter, VectorAdapter)
+ * Uses get_read_head() and consume() for efficient zero-copy deserialization.
  */
-template <typename Storage>
 class Deserializer
 {
 public:
     /**
      * @brief Construct a new Deserializer
      * 
-     * @param storage Reference to the storage backend
+     * @param buffer Reference to the LinearBuffer
      */
-    explicit Deserializer(Storage& storage) : _storage(storage), _bytes_read(0) { }
+    explicit Deserializer(LinearBuffer& buffer) : _buffer(buffer), _bytes_read(0) { }
 
     /**
      * @brief Deserialize a value using operator&
@@ -59,7 +56,7 @@ public:
     void reset() { _bytes_read = 0; }
 
 private:
-    Storage& _storage;
+    LinearBuffer& _buffer;
     std::size_t _bytes_read;
 
     /**
@@ -72,9 +69,16 @@ private:
     template <typename T>
     typename std::enable_if<std::is_arithmetic<T>::value, Deserializer&>::type deserialize_value(T& value)
     {
-        if (_storage.read(&value, sizeof(T)))
+        std::size_t available;
+        const std::uint8_t* read_head = _buffer.get_read_head(available);
+
+        if (read_head != nullptr && available >= sizeof(T))
         {
-            _bytes_read += sizeof(T);
+            std::memcpy(&value, read_head, sizeof(T));
+            if (_buffer.consume(sizeof(T)))
+            {
+                _bytes_read += sizeof(T);
+            }
         }
         return *this;
     }
