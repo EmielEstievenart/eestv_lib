@@ -26,8 +26,9 @@ class TcpConnection
 {
 public:
     using OnConnectionLostCallback = std::function<void()>;
-    using OnDataReceivedCallback   = std::function<void()>;
+    using OnDataReceivedCallback   = std::function<void(ReceiveBuffer& buffer)>;
     using StoppedCallback          = std::function<void()>;
+    using QueueSendDataCallback    = std::function<void(SendBuffer& buffer)>;
 
     static constexpr std::size_t receive_buffer_size = 4096;
 
@@ -52,6 +53,8 @@ public:
     const ReceiveBuffer& receive_buffer() const { return _receive_buffer; }
     SendBuffer& send_buffer() { return _send_buffer; }
     const SendBuffer& send_buffer() const { return _send_buffer; }
+
+    void call_queue_send_function(QueueSendDataCallback callback);
 
     /*This is to be called everytime the user has prepared data to be send via the buffers. */
     void start_sending();
@@ -90,6 +93,12 @@ private:
     StoppedCallback _disconnected_callback;
 
     void resolve_on_stopped();
+};
+template <typename ReceiveBuffer, typename SendBuffer>
+inline void TcpConnection<ReceiveBuffer, SendBuffer>::call_queue_send_function(QueueSendDataCallback callback)
+{
+    std::unique_lock<std::mutex> lock(_mutex);
+    callback(_send_buffer);
 };
 
 // Template implementation
@@ -268,7 +277,7 @@ void TcpConnection<ReceiveBuffer, SendBuffer>::on_receive(const boost::system::e
         {
             // This function is called immediately because its important for the data structure to be behind a lock and usable.
             // We must provide the user the possibility to consume all bytes and reset the linear datastructure before again reserving a  region.
-            _data_received_callback();
+            _data_received_callback(_receive_buffer);
         }
         async_receive();
     }
