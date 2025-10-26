@@ -7,28 +7,25 @@
 #include <type_traits>
 #include "eestv/serial/allowed_types.hpp"
 #include "eestv/serial/serialize_helper.hpp"
+#include "eestv/data/linear_buffer.hpp"
 
 namespace eestv
 {
 
 /**
- * @brief Serializer that writes data to a storage policy
+ * @brief Serializer that writes data directly to a LinearBuffer
  * 
- * The Storage type must provide:
- * - bool write(const void* data, size_t size)
- * 
- * @tparam Storage The storage policy type (e.g., LinearBufferAdapter, VectorAdapter)
+ * Uses get_write_head() and commit() for efficient zero-copy serialization.
  */
-template <typename Storage>
 class Serializer
 {
 public:
     /**
      * @brief Construct a new Serializer
      * 
-     * @param storage Reference to the storage backend
+     * @param buffer Reference to the LinearBuffer
      */
-    explicit Serializer(Storage& storage) : _storage(storage), _bytes_written(0) { }
+    explicit Serializer(LinearBuffer& buffer) : _buffer(buffer), _bytes_written(0) { }
 
     /**
      * @brief Serialize a value using operator&
@@ -60,7 +57,7 @@ public:
     void reset() { _bytes_written = 0; }
 
 private:
-    Storage& _storage;
+    LinearBuffer& _buffer;
     std::size_t _bytes_written;
 
     /**
@@ -73,9 +70,16 @@ private:
     template <typename T>
     typename std::enable_if<std::is_arithmetic<T>::value, Serializer&>::type serialize_value(const T& value)
     {
-        if (_storage.write(&value, sizeof(T)))
+        std::size_t available;
+        std::uint8_t* write_head = _buffer.get_write_head(available);
+
+        if (write_head != nullptr && available >= sizeof(T))
         {
-            _bytes_written += sizeof(T);
+            std::memcpy(write_head, &value, sizeof(T));
+            if (_buffer.commit(sizeof(T)))
+            {
+                _bytes_written += sizeof(T);
+            }
         }
         return *this;
     }
