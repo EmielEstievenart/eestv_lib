@@ -45,7 +45,7 @@ public:
 
     /**
      * @brief Deserialize an object, returning a variant containing the correct type
-     * 
+     *
      * @param success_out Output parameter indicating if deserialization succeeded
      * @return variant_type The deserialized object in a variant
      */
@@ -68,8 +68,21 @@ public:
             return variant_type {};
         }
 
+        // Validate that buffer contains the full payload
+        // Special case: if payload_size is 0, we don't need to check buffer availability
+        if (payload_size > 0)
+        {
+            std::size_t available         = 0;
+            const std::uint8_t* read_head = _buffer.get_read_head(available);
+            if (read_head == nullptr || available < payload_size)
+            {
+                success_out = false;
+                return variant_type {};
+            }
+        }
+
         // Deserialize based on type index
-        variant_type result = deserialize_by_index(type_index, success_out);
+        variant_type result = deserialize_by_index(type_index, payload_size, success_out);
         return result;
     }
 
@@ -104,51 +117,84 @@ private:
 
     /**
      * @brief Deserialize based on runtime type index
-     * 
+     *
      * @param type_index The type index from the header
+     * @param payload_size The expected payload size from the header
      * @param success_out Output parameter indicating success
      * @return variant_type The deserialized object
      */
-    variant_type deserialize_by_index(std::uint8_t type_index, bool& success_out)
+    variant_type deserialize_by_index(std::uint8_t type_index, std::uint16_t payload_size, bool& success_out)
     {
         variant_type result;
-        success_out = deserialize_by_index_impl(type_index, result, std::index_sequence_for<Types...> {});
+        success_out = deserialize_by_index_impl(type_index, payload_size, result, std::index_sequence_for<Types...> {});
         return result;
     }
 
     /**
      * @brief Implementation of type-indexed deserialization using index sequence
-     * 
+     *
      * @tparam Indices Index sequence for the types
      * @param type_index The runtime type index
+     * @param payload_size The expected payload size from the header
      * @param result_out The variant to store the result in
      * @param indices_seq Index sequence (compile-time parameter)
      * @return true if deserialization succeeded
      */
     template <std::size_t... Indices>
-    bool deserialize_by_index_impl(std::uint8_t type_index, variant_type& result_out, std::index_sequence<Indices...> /* indices_seq */)
+    bool deserialize_by_index_impl(std::uint8_t type_index, std::uint16_t payload_size, variant_type& result_out,
+                                    std::index_sequence<Indices...> /* indices_seq */)
     {
         // Use fold expression to try each index
         bool success = false;
-        (void)((type_index == Indices ? (success = deserialize_type<std::tuple_element_t<Indices, std::tuple<Types...>>>(result_out), true)
-                                      : false) ||
+        (void)((type_index == Indices
+                    ? (success = deserialize_type<std::tuple_element_t<Indices, std::tuple<Types...>>>(payload_size, result_out), true)
+                    : false) ||
                ...);
         return success;
     }
 
     /**
      * @brief Deserialize a specific type
-     * 
+     *
      * @tparam T The type to deserialize
+     * @param payload_size The expected payload size from the header
      * @param result_out The variant to store the result in
      * @return true if deserialization succeeded
      */
     template <typename T>
-    bool deserialize_type(variant_type& result_out)
+    bool deserialize_type(std::uint16_t payload_size, variant_type& result_out)
     {
         T value {};
         Deserializer deser(_buffer);
+
+        // For empty payloads (payload_size == 0), just deserialize without validation
+        // since the buffer consumption tracking may not work correctly for zero-byte messages
+        if (payload_size == 0)
+        {
+            deser & value;
+            result_out = std::move(value);
+            return true;
+        }
+
+        // Check buffer state before deserialization
+        std::size_t available_before = 0;
+        _buffer.get_read_head(available_before);
+
         deser & value;
+
+        // Check buffer state after deserialization
+        std::size_t available_after = 0;
+        _buffer.get_read_head(available_after);
+
+        // Calculate how many bytes were consumed from the buffer
+        // Handle case where available_before < available_after (shouldn't happen but be safe)
+        std::size_t bytes_consumed = (available_before >= available_after) ? (available_before - available_after) : 0;
+
+        // Verify we consumed exactly the expected number of bytes
+        if (bytes_consumed != static_cast<std::size_t>(payload_size))
+        {
+            return false;
+        }
 
         result_out = std::move(value);
         return true;
