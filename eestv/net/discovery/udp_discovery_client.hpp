@@ -51,7 +51,7 @@ private:
     std::array<char, recv_buffer_size> _recv_buffer;
     std::chrono::milliseconds _retry_timeout;
     boost::asio::steady_timer _timer;
-    int _port;
+    int _destination_port;
     std::function<bool(const std::string&, const boost::asio::ip::udp::endpoint&)> _on_response;
     std::function<void()> _on_stopped;
 

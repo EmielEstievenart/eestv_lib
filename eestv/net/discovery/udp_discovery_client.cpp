@@ -10,12 +10,12 @@ namespace eestv
 {
 
 UdpDiscoveryClient::UdpDiscoveryClient(
-    boost::asio::io_context& io_context, const std::string& service_name, std::chrono::milliseconds retry_timeout, int port,
+    boost::asio::io_context& io_context, const std::string& service_name, std::chrono::milliseconds retry_timeout, int destination_port,
     std::function<bool(const std::string& response, const boost::asio::ip::udp::endpoint& remote_endpoint)> response_handler)
     : _io_context(io_context)
     , _service_name(service_name)
     , _retry_timeout(retry_timeout)
-    , _port(port)
+    , _destination_port(destination_port)
     , _on_response(std::move(response_handler))
     , _socket(io_context, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), 0))
     , _timer(io_context)
@@ -116,8 +116,9 @@ void UdpDiscoveryClient::stop()
 
 void UdpDiscoveryClient::send_discovery_request()
 {
-    boost::asio::ip::udp::endpoint broadcast_endpoint(boost::asio::ip::make_address("255.255.255.255"), _port);
+    boost::asio::ip::udp::endpoint broadcast_endpoint(boost::asio::ip::make_address("255.255.255.255"), _destination_port);
 
+    EESTV_LOG_TRACE("Sending discovery request: " << _service_name);
     _flags.set_flag(UdpDiscoveryState::sending_async);
     _socket.async_send_to(boost::asio::buffer(_service_name), broadcast_endpoint,
                           [this](const boost::system::error_code& error_code, std::size_t) { handle_send_complete(error_code); });
@@ -168,7 +169,7 @@ void UdpDiscoveryClient::handle_response(const boost::system::error_code& error_
     {
         // We received a response
         std::string response(_recv_buffer.data(), bytes_transferred);
-        EESTV_LOG_INFO("Discovery response from " << _remote_endpoint << ": " << response);
+        EESTV_LOG_TRACE("Discovery response from " << _remote_endpoint << ": " << response);
         if (_on_response)
         {
             // Call the response handler with the received response and remote endpoint
