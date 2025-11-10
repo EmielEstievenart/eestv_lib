@@ -2,49 +2,58 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <boost/asio/io_context.hpp>
-#include <thread>
 
+#include "data_bridge_config.hpp"
+#include "eestv/net/discovery/discoverable.hpp"
 #include "eestv/net/discovery/udp_discovery_client.hpp"
 #include "eestv/net/discovery/udp_discovery_server.hpp"
+#include "eestv/net/connection/tcp_connection.hpp"
+#include "eestv/net/connection/tcp_server.hpp"
 
 namespace eestv
 {
 
-enum class ClientServerMode
-{
-    client,
-    server
-};
-
-enum class EndpointMode
-{
-    endpoint,
-    bridge
-};
-
 class DataBridge
 {
 public:
-    DataBridge(int argc, char* argv[]);
+    static constexpr int default_port = 12345;
+
+    DataBridge(const DataBridgeConfig& config, boost::asio::io_context& io_context, int port = default_port);
     ~DataBridge();
 
-    ClientServerMode client_server_mode() const noexcept;
-    EndpointMode endpoint_mode() const noexcept;
-    const std::string& discovery_target() const noexcept;
+    EndpointMode endpoint_mode() const noexcept { return _config.endpoint_mode; }
+    const std::string& discovery_target() const noexcept { return _config.discovery_target; }
+
+    // Analytics
+    std::size_t discovery_count() const noexcept { return _discovery_count; }
+    std::size_t discovered_count() const noexcept { return _discovered_count; }
 
 private:
-    void parse_command_line_parameters(int argc, char* argv[]);
-    void set_up_discovery(ClientServerMode client_server_mode, const std::string& discovery_target);
+    void set_up_discovery();
+    void set_up_tcp_server();
 
-    ClientServerMode _client_server_mode;
-    EndpointMode _endpoint_mode;
-    std::string _discovery_target;
+    bool on_peer_discovered(const std::string& response, const boost::asio::ip::udp::endpoint& endpoint);
 
-    boost::asio::io_context _io_context;
+    DataBridgeConfig _config;
+
+    Discoverable _discoverable;
+
+    boost::asio::io_context& _io_context;
     std::unique_ptr<UdpDiscoveryServer> _discovery_server;
     std::unique_ptr<UdpDiscoveryClient> _discovery_client;
-    std::thread _io_thread;
+    std::unique_ptr<TcpServer<>> _tcp_server;
+
+    std::vector<std::unique_ptr<TcpConnection<>>> _connections;
+
+    int _default_port = 12345;
+
+    // Analytics
+    std::size_t _discovery_count  = 0; // Number of times we discovered peers
+    std::size_t _discovered_count = 0; // Number of times we were discovered
+
+    std::string on_disvovered();
 };
 } // namespace eestv

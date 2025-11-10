@@ -16,6 +16,9 @@ add_library(
   eestv/data/linear_buffer.cpp
   eestv/data_bridge/data_bridge.hpp
   eestv/data_bridge/data_bridge.cpp
+  eestv/data_bridge/data_bridge_config.hpp
+  eestv/data_bridge/data_bridge_cli.hpp
+  eestv/data_bridge/data_bridge_cli.cpp
   eestv/logging/eestv_logging.hpp
   eestv/logging/eestv_logging.cpp)
 
