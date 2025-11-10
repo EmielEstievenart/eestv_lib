@@ -3,10 +3,14 @@ add_library(
   # discoverable/discovering sockets removed
   eestv/net/discovery/discoverable.cpp
   eestv/net/discovery/discoverable.hpp
+  eestv/net/discovery/discovery_string.cpp
+  eestv/net/discovery/discovery_string.hpp
   eestv/net/discovery/udp_discovery_server.cpp
   eestv/net/discovery/udp_discovery_server.hpp
   eestv/net/discovery/udp_discovery_client.cpp
   eestv/net/discovery/udp_discovery_client.hpp
+  eestv/net/network_utils.cpp
+  eestv/net/network_utils.hpp
   eestv/net/connection/tcp_connection.hpp
   eestv/net/connection/tcp_server.hpp
   eestv/net/connection/tcp_client.hpp

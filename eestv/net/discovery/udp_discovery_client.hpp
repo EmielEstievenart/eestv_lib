@@ -18,7 +18,7 @@ class UdpDiscoveryClient
 public:
     UdpDiscoveryClient(boost::asio::io_context& io_context, const std::string& service_name, std::chrono::milliseconds retry_timeout,
                        int port,
-                       std::function<bool(const std::string& response, const boost::asio::ip::udp::endpoint& remote_endpoint)> on_handler);
+                       std::function<bool(const std::string& response, const boost::asio::ip::udp::endpoint& remote_endpoint)> on_response);
 
     ~UdpDiscoveryClient();
 
@@ -52,7 +52,7 @@ private:
     std::chrono::milliseconds _retry_timeout;
     boost::asio::steady_timer _timer;
     int _destination_port;
-    std::function<bool(const std::string&, const boost::asio::ip::udp::endpoint&)> _on_response;
+    std::function<bool(const std::string&, const boost::asio::ip::udp::endpoint& remote_endpoint)> _on_response;
     std::function<void()> _on_stopped;
 
     Flags<UdpDiscoveryState> _flags;

@@ -11,12 +11,12 @@ namespace eestv
 
 UdpDiscoveryClient::UdpDiscoveryClient(
     boost::asio::io_context& io_context, const std::string& service_name, std::chrono::milliseconds retry_timeout, int destination_port,
-    std::function<bool(const std::string& response, const boost::asio::ip::udp::endpoint& remote_endpoint)> response_handler)
+    std::function<bool(const std::string& response, const boost::asio::ip::udp::endpoint& remote_endpoint)> on_response)
     : _io_context(io_context)
     , _service_name(service_name)
     , _retry_timeout(retry_timeout)
     , _destination_port(destination_port)
-    , _on_response(std::move(response_handler))
+    , _on_response(std::move(on_response))
     , _socket(io_context, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), 0))
     , _timer(io_context)
     , _recv_buffer()
