@@ -3,11 +3,14 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <optional>
 
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
 
 #include "data_bridge_config.hpp"
 #include "eestv/net/discovery/discoverable.hpp"
+#include "eestv/net/discovery/discovery_string.hpp"
 #include "eestv/net/discovery/udp_discovery_client.hpp"
 #include "eestv/net/discovery/udp_discovery_server.hpp"
 #include "eestv/net/connection/tcp_connection.hpp"
@@ -35,7 +38,8 @@ private:
     void set_up_discovery();
     void set_up_tcp_server();
 
-    bool on_peer_discovered(const std::string& response, const boost::asio::ip::udp::endpoint& endpoint);
+    bool on_response_from_peer(const std::string& response, const boost::asio::ip::udp::endpoint& endpoint);
+    bool on_peer_discovered(DiscoveryInfo& discovery_info);
 
     DataBridgeConfig _config;
 
@@ -54,6 +58,6 @@ private:
     std::size_t _discovery_count  = 0; // Number of times we discovered peers
     std::size_t _discovered_count = 0; // Number of times we were discovered
 
-    std::string on_disvovered();
+    std::string on_disvovered(const boost::asio::ip::udp::endpoint& remote_endpoint);
 };
 } // namespace eestv
