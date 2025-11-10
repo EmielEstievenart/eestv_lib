@@ -1,4 +1,5 @@
 #include "eestv/net/discovery/udp_discovery_server.hpp"
+#include "boost/asio/ip/udp.hpp"
 #include "boost/asio/post.hpp"
 #include "eestv/logging/eestv_logging.hpp"
 #include "eestv/net/discovery/discovery_states.hpp"
@@ -8,11 +9,11 @@ namespace eestv
 {
 
 UdpDiscoveryServer::UdpDiscoveryServer(boost::asio::io_context& io_context, int port)
-    : _io_context(io_context)
-    , _socket(io_context, boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), port))
-    , _port(port)
-    , _recv_buffer()
+    : _io_context(io_context), _socket(io_context), _port(port), _recv_buffer()
 {
+    _socket.open(boost::asio::ip::udp::v4());
+    _socket.set_option(boost::asio::socket_base::reuse_address(true));
+    _socket.bind(boost::asio::ip::udp::endpoint(boost::asio::ip::udp::v4(), port));
 }
 
 UdpDiscoveryServer::~UdpDiscoveryServer()
@@ -100,6 +101,7 @@ void UdpDiscoveryServer::stop()
 
 void UdpDiscoveryServer::add_discoverable(const Discoverable& discoverable)
 {
+    EESTV_LOG_DEBUG("Adding discoverable: " << discoverable.get_identifier());
     std::lock_guard<std::mutex> lock(_discoverables_mutex);
     _discoverables.emplace(discoverable.get_identifier(), discoverable);
 }
@@ -138,8 +140,8 @@ void UdpDiscoveryServer::handle_receive(const boost::system::error_code& error_c
             auto iter = _discoverables.find(received_identifier);
             if (iter != _discoverables.end())
             {
-                // Get the reply from the discoverable
-                reply = iter->second.get_reply();
+                // Get the reply from the discoverable, passing the remote endpoint
+                reply = iter->second.get_reply(_remote_endpoint);
             }
         }
 
