@@ -4,7 +4,7 @@
 
 #include "eestv/logging/eestv_logging.hpp"
 
-namespace eestv
+namespace eestv::bridge
 {
 
 enum class EndpointMode
@@ -13,11 +13,11 @@ enum class EndpointMode
     bridge
 };
 
-struct DataBridgeConfig
+struct Config
 {
     EndpointMode endpoint_mode;
     std::string discovery_target;
     logging::LogLevel log_level = logging::LogLevel::Info;
 };
 
-} // namespace eestv
+} // namespace eestv::bridge

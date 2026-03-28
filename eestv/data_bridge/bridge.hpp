@@ -4,44 +4,50 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <unordered_map>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
-#include "data_bridge_config.hpp"
+#include "config.hpp"
 #include "eestv/net/discovery/discoverable.hpp"
 #include "eestv/net/discovery/discovery_string.hpp"
 #include "eestv/net/discovery/udp_discovery_client.hpp"
 #include "eestv/net/discovery/udp_discovery_server.hpp"
 #include "eestv/net/connection/tcp_connection.hpp"
 #include "eestv/net/connection/tcp_server.hpp"
+#include "eestv/net/connection/tcp_client.hpp"
 
-namespace eestv
+namespace eestv::bridge
 {
 
-class DataBridge
+class Bridge
 {
 public:
     static constexpr int default_port = 12345;
 
-    DataBridge(const DataBridgeConfig& config, boost::asio::io_context& io_context, int port = default_port);
-    ~DataBridge();
+    Bridge(const Config& config, boost::asio::io_context& io_context, int port = default_port);
+    ~Bridge();
 
-    EndpointMode endpoint_mode() const noexcept { return _config.endpoint_mode; }
-    const std::string& discovery_target() const noexcept { return _config.discovery_target; }
+    Config config() const { return _config; }
 
     // Analytics
     std::size_t discovery_count() const noexcept { return _discovery_count; }
     std::size_t discovered_count() const noexcept { return _discovered_count; }
+    std::size_t pending_connections_count() const noexcept
+    {
+        return _pending_outgoing_connections.size() + _pending_incoming_connections.size();
+    }
 
 private:
     void set_up_discovery();
     void set_up_tcp_server();
 
-    bool on_response_from_peer(const std::string& response, const boost::asio::ip::udp::endpoint& endpoint);
+    bool on_discovery_response(const std::string& response, const boost::asio::ip::udp::endpoint& endpoint);
     bool on_peer_discovered(DiscoveryInfo& discovery_info);
+    void on_accept(std::unique_ptr<TcpConnection<>> connection);
 
-    DataBridgeConfig _config;
+    Config _config;
 
     Discoverable _discoverable;
 
@@ -50,7 +56,10 @@ private:
     std::unique_ptr<UdpDiscoveryClient> _discovery_client;
     std::unique_ptr<TcpServer<>> _tcp_server;
 
-    std::vector<std::unique_ptr<TcpConnection<>>> _connections;
+    std::unordered_map<std::string, std::unique_ptr<TcpClient>> _connecting_clients;
+    std::unordered_map<std::string, std::unique_ptr<TcpConnection<>>> _pending_outgoing_connections;
+    std::unordered_map<std::string, std::unique_ptr<TcpConnection<>>> _pending_incoming_connections;
+    std::unordered_map<std::string, std::unique_ptr<TcpConnection<>>> _unique_connections;
 
     int _default_port = 12345;
 
@@ -60,4 +69,4 @@ private:
 
     std::string on_disvovered(const boost::asio::ip::udp::endpoint& remote_endpoint);
 };
-} // namespace eestv
+} // namespace eestv::bridge

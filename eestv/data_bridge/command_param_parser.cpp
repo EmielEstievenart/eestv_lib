@@ -1,18 +1,18 @@
-#include "data_bridge_cli.hpp"
+#include "command_param_parser.hpp"
 #include "eestv/logging/eestv_logging.hpp"
 
 #include <boost/program_options.hpp>
 #include <iostream>
 #include <vector>
 
-namespace eestv
+namespace eestv::bridge
 {
 
-DataBridgeConfig parse_command_line(int argc, char* argv[])
+Config parse_command_line(int argc, char* argv[])
 {
     namespace po = boost::program_options;
 
-    po::options_description desc("DataBridge Options");
+    po::options_description desc("Bridge Options");
     // clang-format off
     desc.add_options()
         ("help,h", "Show help message")
@@ -50,7 +50,7 @@ DataBridgeConfig parse_command_line(int argc, char* argv[])
 
     po::variables_map variables;
 
-    DataBridgeConfig config;
+    Config config;
 
     try
     {
@@ -96,7 +96,7 @@ DataBridgeConfig parse_command_line(int argc, char* argv[])
             config.log_level = logging::LogLevel::Trace;
         }
 
-        EESTV_LOG_INFO("DataBridge instance created");
+        EESTV_LOG_INFO("Bridge instance created");
         EESTV_LOG_DEBUG("Verbosity level: " << verbosity);
         EESTV_LOG_DEBUG("Endpoint mode: " << (is_endpoint ? "endpoint" : "bridge"));
         EESTV_LOG_INFO("Discovery target: " << config.discovery_target);
@@ -113,4 +113,4 @@ DataBridgeConfig parse_command_line(int argc, char* argv[])
     return config;
 }
 
-} // namespace eestv
+} // namespace eestv::bridge

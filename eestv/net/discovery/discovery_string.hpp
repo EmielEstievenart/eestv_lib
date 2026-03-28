@@ -17,6 +17,7 @@ struct DiscoveryInfo
     std::string ip_address;                  ///< IP address of the service
     unsigned short port;                     ///< Port number of the service
     boost::asio::ip::tcp::endpoint endpoint; ///< Full endpoint for convenience
+    uint64_t timestamp_ms;                   ///< Timestamp in milliseconds since epoch
 };
 
 /**
@@ -26,17 +27,17 @@ class DiscoveryString
 {
 public:
     /**
-     * @brief Creates a discovery response string in "SERVICE_NAME:IP:PORT" format
+     * @brief Creates a discovery response string in "SERVICE_NAME:IP:PORT:TIMESTAMP" format
      * @param service_name The name of the service
      * @param ip_address The IP address to include in the string
      * @param port The port number to include in the string
-     * @return Discovery response string (e.g., "my_service:192.168.1.100:54321")
+     * @return Discovery response string (e.g., "my_service:192.168.1.100:54321:1700000000000")
      */
     static std::string construct(const std::string& service_name, const std::string& ip_address, unsigned short port);
 
     /**
-     * @brief Parses a discovery response string in "SERVICE_NAME:IP:PORT" format
-     * @param response The response string to parse (e.g., "my_service:192.168.1.100:54321")
+     * @brief Parses a discovery response string in "SERVICE_NAME:IP:PORT:TIMESTAMP" format
+     * @param response The response string to parse (e.g., "my_service:192.168.1.100:54321:1700000000000")
      * @return Parsed DiscoveryInfo on success, std::nullopt on failure
      */
     static std::optional<DiscoveryInfo> parse(const std::string& response);

@@ -18,17 +18,19 @@ add_library(
   eestv/threading/spinlock_mutex.hpp
   eestv/data/linear_buffer.hpp
   eestv/data/linear_buffer.cpp
-  eestv/data_bridge/data_bridge.hpp
-  eestv/data_bridge/data_bridge.cpp
-  eestv/data_bridge/data_bridge_config.hpp
-  eestv/data_bridge/data_bridge_cli.hpp
-  eestv/data_bridge/data_bridge_cli.cpp
+  eestv/data_bridge/bridge.hpp
+  eestv/data_bridge/bridge.cpp
+  eestv/data_bridge/config.hpp
+  eestv/data_bridge/command_param_parser.hpp
+  eestv/data_bridge/command_param_parser.cpp
   eestv/logging/eestv_logging.hpp
   eestv/logging/eestv_logging.cpp)
 
 target_include_directories(eestv_lib PUBLIC .)
 
-target_compile_definitions(eestv_lib PUBLIC BOOST_ASIO_NO_DEPRECATED)
+target_compile_definitions(
+  eestv_lib PUBLIC BOOST_ASIO_NO_DEPRECATED
+                   EESTV_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/")
 
 target_link_libraries(eestv_lib PUBLIC Boost::asio Boost::system
                                        Boost::program_options)

@@ -54,6 +54,8 @@ public:
     SendBuffer& send_buffer() { return _send_buffer; }
     const SendBuffer& send_buffer() const { return _send_buffer; }
 
+    boost::asio::ip::tcp::endpoint remote_endpoint() const { return _remote_endpoint; }
+
     void call_queue_send_function(QueueSendDataCallback callback);
 
     /*This is to be called everytime the user has prepared data to be send via the buffers. */
