@@ -1,17 +1,33 @@
 # eestv_lib
 
-The reusable library part of my personal eestv project. Designed as a submodule with no extra dependencies for external usage. 
+The reusable library part of my personal `eestv` project.
 
-This is a lightweight submodule that's supposed to be fast to check out and doesn't add much size to the super-project.
-As a trade-off, this project doesn't compile on it's own! The superproject must take care of it's dependencies. 
+This directory is intended to stay lightweight so it works well as a submodule
+and does not add much size to the superproject. It is not a standalone project,
+though: the parent project is expected to provide the build setup, tests, and
+third-party dependencies.
 
-This project is developed as part of a super-project, with unit-tests and all of its dependencies taken care of. You can find it here: 
+Development happens in the main `eestv` repository:
 https://github.com/EmielEstievenart/eestv
-
 
 ## Dependencies
 
-Here's a list of dependencies for this project
+`eestv_lib` currently depends on these Boost components:
 
-* Boost::asio
-* Boost::system 
+* `Boost::asio`
+* `Boost::system`
+* `Boost::program_options`
+
+## How Boost Is Provided
+
+This submodule does not fetch or locate Boost on its own. It expects the parent
+project to provide Boost as part of the build setup.
+
+In the main `eestv` project, this is done by:
+
+* setting `BOOST_ROOT` to the root of a Boost source tree
+* enabling Boost's CMake support
+* adding Boost with `add_subdirectory(${BOOST_ROOT} ...)`
+
+So if you reuse `eestv_lib` elsewhere, the consuming project must make the
+required Boost targets available before linking `eestv_lib`.
