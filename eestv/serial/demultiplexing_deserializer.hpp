@@ -20,7 +20,7 @@ namespace eestv
  * 
  * Usage:
  * @code
- * SerializationDemultiplexer<TypeA, TypeB, TypeC> demux(buffer);
+ * DemultiplexingDeserializer<TypeA, TypeB, TypeC> demux(buffer);
  * auto variant = demux.deserialize(); // Returns std::variant<TypeA, TypeB, TypeC>
  * std::visit([](auto& obj) { // process obj }, variant);
  * @endcode
@@ -28,7 +28,7 @@ namespace eestv
  * @tparam Types The types that can be deserialized through this demultiplexer
  */
 template <typename... Types>
-class SerializationDemultiplexer
+class DemultiplexingDeserializer
 {
     static_assert(sizeof...(Types) > 0, "At least one type must be specified");
     static_assert(sizeof...(Types) <= max_types, "Maximum 255 types supported (1 byte index)");
@@ -37,11 +37,11 @@ public:
     using variant_type = std::variant<Types...>;
 
     /**
-     * @brief Construct a new SerializationDemultiplexer
+     * @brief Construct a new DemultiplexingDeserializer
      * 
      * @param buffer Reference to the LinearBuffer
      */
-    explicit SerializationDemultiplexer(LinearBuffer& buffer) : _buffer(buffer) { }
+    explicit DemultiplexingDeserializer(LinearBuffer& buffer) : _buffer(buffer) { }
 
     /**
      * @brief Deserialize an object, returning a variant containing the correct type

@@ -18,7 +18,7 @@ namespace eestv
  * 
  * Usage:
  * @code
- * SerializationMultiplexer<TypeA, TypeB, TypeC> mux(buffer);
+ * MultiplexingSerializer<TypeA, TypeB, TypeC> mux(buffer);
  * mux.serialize(instance_of_type_a);
  * mux.serialize(instance_of_type_b);
  * @endcode
@@ -26,18 +26,18 @@ namespace eestv
  * @tparam Types The types that can be serialized through this multiplexer
  */
 template <typename... Types>
-class SerializationMultiplexer
+class MultiplexingSerializer
 {
     static_assert(sizeof...(Types) > 0, "At least one type must be specified");
     static_assert(sizeof...(Types) <= max_types, "Maximum 255 types supported (1 byte index)");
 
 public:
     /**
-     * @brief Construct a new SerializationMultiplexer
+     * @brief Construct a new MultiplexingSerializer
      * 
      * @param buffer Reference to the LinearBuffer
      */
-    explicit SerializationMultiplexer(LinearBuffer& buffer) : _buffer(buffer) { }
+    explicit MultiplexingSerializer(LinearBuffer& buffer) : _buffer(buffer) { }
 
     /**
      * @brief Serialize an object with type metadata

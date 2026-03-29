@@ -4,8 +4,8 @@
  * @file serialization_mux.hpp
  * @brief Convenience header that includes both serialization multiplexer and demultiplexer
  * 
- * Include this header to get access to both SerializationMultiplexer and SerializationDemultiplexer.
+ * Include this header to get access to both MultiplexingSerializer and DemultiplexingDeserializer.
  */
 
-#include "eestv/serial/serialization_multiplexer.hpp"
-#include "eestv/serial/serialization_demultiplexer.hpp"
+#include "eestv/serial/multiplexing_serializer.hpp"
+#include "eestv/serial/demultiplexing_deserializer.hpp"
