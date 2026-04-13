@@ -1,24 +1,24 @@
 #pragma once
 
+#include <optional>
 #include <string>
-#include <vector>
 #include <functional>
+#include <vector>
 
 namespace eestv
 {
 struct DateAndTime
 {
-    int year {};
-    unsigned month {};
-    unsigned day {};
+    int year {0};
+    unsigned month {0};
+    unsigned day {0};
 
-    unsigned hour {};
-    unsigned minute {};
-    unsigned second {};
-    unsigned nanosecond {};
+    unsigned hour {0};
+    unsigned minute {0};
+    unsigned second {0};
+    unsigned nanosecond {0};
 
-    bool has_timezone_offset {false};
-    int timezone_offset_minutes {};
+    std::optional<int> utc_offset_minutes;
 
     bool leap_second {false};
 };
@@ -46,7 +46,14 @@ private:
     static DateAndTimeParserStep make_two_digit_year_parser();
     static DateAndTimeParserStep make_four_digit_year_parser();
     static DateAndTimeParserStep make_two_digit_field_parser(unsigned DateAndTime::* field, unsigned min_value, unsigned max_value);
+    static DateAndTimeParserStep make_month_name_parser();
     static DateAndTimeParserStep make_second_parser();
     static DateAndTimeParserStep make_fraction_parser(unsigned digits);
+    static DateAndTimeParserStep make_utc_designator_parser();
+    static DateAndTimeParserStep make_utc_offset_parser(bool with_colon);
+    static DateAndTimeParserStep make_date_validator(bool has_year);
+
+    static bool is_leap_year(int year);
+    static unsigned max_day_in_month(unsigned month, bool leap_year);
 };
 } //namespace eestv
