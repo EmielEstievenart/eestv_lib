@@ -170,6 +170,31 @@ bool TimestampParser::is_separator(char tested)
     }
 }
 
+std::vector<int> TimestampParser::possible_parse_start_indices(const std::string& to_parse)
+{
+    std::vector<int> indices {0};
+    bool in_whitespace = false;
+
+    for (int index = 0; index < static_cast<int>(to_parse.size()); ++index)
+    {
+        const bool is_whitespace = to_parse[index] == ' ' || to_parse[index] == '\t';
+
+        if (!in_whitespace && is_whitespace)
+        {
+            in_whitespace = true;
+            continue;
+        }
+
+        if (in_whitespace && !is_whitespace)
+        {
+            indices.push_back(index);
+            in_whitespace = false;
+        }
+    }
+
+    return indices;
+}
+
 bool TimestampParser::is_digit(char tested)
 {
     return tested >= '0' && tested <= '9';

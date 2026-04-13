@@ -36,6 +36,7 @@ public:
     compiledDataAndTimeParser CompileFormat(const std::string& format);
 
     static bool is_separator(char tested);
+    static std::vector<int> possible_parse_start_indices(const std::string& to_parse);
 
 private:
     static bool is_digit(char tested);
