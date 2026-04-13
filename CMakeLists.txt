@@ -24,7 +24,9 @@ add_library(
   eestv/data_bridge/command_param_parser.hpp
   eestv/data_bridge/command_param_parser.cpp
   eestv/logging/eestv_logging.hpp
-  eestv/logging/eestv_logging.cpp)
+  eestv/logging/eestv_logging.cpp
+  eestv/timestamp/timestamp_parser.cpp
+  eestv/timestamp/timestamp_parser.hpp)
 
 target_include_directories(eestv_lib PUBLIC .)
 
