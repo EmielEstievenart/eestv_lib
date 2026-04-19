@@ -1,5 +1,8 @@
 #include "eestv/timestamp/timestamp_parser.hpp"
 
+#include <algorithm>
+#include <ctime>
+
 namespace eestv
 {
 
@@ -16,7 +19,43 @@ char to_lower_ascii(char character)
     return character;
 }
 
+std::time_t make_utc_time(std::tm* utc_time)
+{
+#ifdef _WIN32
+    return _mkgmtime(utc_time);
+#else
+    return timegm(utc_time);
+#endif
+}
+
 } // namespace
+
+std::optional<std::chrono::system_clock::time_point> DateAndTime::to_time_point() const
+{
+    std::tm timestamp {};
+    timestamp.tm_year  = year - 1900;
+    timestamp.tm_mon   = static_cast<int>(month) - 1;
+    timestamp.tm_mday  = static_cast<int>(day);
+    timestamp.tm_hour  = static_cast<int>(hour);
+    timestamp.tm_min   = static_cast<int>(minute);
+    timestamp.tm_sec   = static_cast<int>(std::min(second, 59U));
+    timestamp.tm_isdst = -1;
+
+    const bool has_timezone   = utc_offset_minutes.has_value();
+    std::time_t epoch_seconds = has_timezone ? make_utc_time(&timestamp) : std::mktime(&timestamp);
+    if (epoch_seconds == static_cast<std::time_t>(-1))
+    {
+        return std::nullopt;
+    }
+
+    if (has_timezone)
+    {
+        epoch_seconds -= static_cast<std::time_t>(*utc_offset_minutes) * 60;
+    }
+
+    const auto duration = std::chrono::seconds(epoch_seconds) + std::chrono::nanoseconds(nanosecond);
+    return std::chrono::system_clock::time_point(std::chrono::duration_cast<std::chrono::system_clock::duration>(duration));
+}
 
 compiledDataAndTimeParser TimestampParser::CompileFormat(const std::string& format)
 {
@@ -189,6 +228,42 @@ std::vector<int> TimestampParser::possible_parse_start_indices(const std::string
         {
             indices.push_back(index);
             in_whitespace = false;
+        }
+    }
+
+    return indices;
+}
+
+std::vector<int> TimestampParser::possible_parse_start_indices(const std::string& to_parse, int max_indices)
+{
+    std::vector<int> indices {0};
+    bool in_whitespace = false;
+    int nr_of_indices  = 1;
+
+    if (max_indices == 0 || max_indices == 1)
+    {
+        return indices;
+    }
+
+    for (int index = 0; index < static_cast<int>(to_parse.size()); ++index)
+    {
+        const bool is_whitespace = to_parse[index] == ' ' || to_parse[index] == '\t';
+
+        if (!in_whitespace && is_whitespace)
+        {
+            in_whitespace = true;
+            continue;
+        }
+
+        if (in_whitespace && !is_whitespace)
+        {
+            indices.push_back(index);
+            in_whitespace = false;
+            nr_of_indices++;
+            if (nr_of_indices == max_indices)
+            {
+                return indices;
+            }
         }
     }
 

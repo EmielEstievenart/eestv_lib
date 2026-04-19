@@ -1,8 +1,9 @@
 #pragma once
 
+#include <chrono>
+#include <functional>
 #include <optional>
 #include <string>
-#include <functional>
 #include <vector>
 
 namespace eestv
@@ -21,6 +22,8 @@ struct DateAndTime
     std::optional<int> utc_offset_minutes;
 
     bool leap_second {false};
+
+    std::optional<std::chrono::system_clock::time_point> to_time_point() const;
 };
 
 using DateAndTimeParserStep = std::function<bool(std::string& to_parse, int index, int& index_jump, DateAndTime& output)>;
@@ -37,6 +40,7 @@ public:
 
     static bool is_separator(char tested);
     static std::vector<int> possible_parse_start_indices(const std::string& to_parse);
+    static std::vector<int> possible_parse_start_indices(const std::string& to_parse, int max_indices);
 
 private:
     static bool is_digit(char tested);
