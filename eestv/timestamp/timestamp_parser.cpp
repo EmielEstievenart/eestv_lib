@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <ctime>
+#include <limits>
 
 namespace eestv
 {
@@ -135,6 +136,13 @@ compiledDataAndTimeParser TimestampParser::CompileFormat(const std::string& form
             continue;
         }
 
+        if (token == 's' && index + 1 < size && format[index + 1] == '*')
+        {
+            parser.dateParser.push_back(make_variable_second_parser());
+            index += 1;
+            continue;
+        }
+
         if (token == 's' && index + 1 < size && format[index + 1] == 's')
         {
             parser.dateParser.push_back(make_second_parser());
@@ -144,6 +152,13 @@ compiledDataAndTimeParser TimestampParser::CompileFormat(const std::string& form
 
         if (token == 'f')
         {
+            if (index + 1 < size && format[index + 1] == '*')
+            {
+                parser.dateParser.push_back(make_variable_fraction_parser());
+                index += 1;
+                continue;
+            }
+
             unsigned digits = 1;
 
             while (index + static_cast<int>(digits) < size && format[index + static_cast<int>(digits)] == 'f')
@@ -459,6 +474,36 @@ DateAndTimeParserStep TimestampParser::make_second_parser()
     };
 }
 
+DateAndTimeParserStep TimestampParser::make_variable_second_parser()
+{
+    return [](std::string& to_parse, int index, int& index_jump, DateAndTime& output)
+    {
+        if (index < 0 || index >= static_cast<int>(to_parse.size()) || !TimestampParser::is_digit(to_parse[index]))
+        {
+            return false;
+        }
+
+        unsigned second = 0;
+        int consumed    = 0;
+        while (index + consumed < static_cast<int>(to_parse.size()) && TimestampParser::is_digit(to_parse[index + consumed]))
+        {
+            const unsigned digit = static_cast<unsigned>(to_parse[index + consumed] - '0');
+            if (second > ((std::numeric_limits<unsigned>::max)() - digit) / 10)
+            {
+                return false;
+            }
+
+            second = second * 10 + digit;
+            ++consumed;
+        }
+
+        output.second      = second;
+        output.leap_second = second == 60;
+        index_jump         = consumed;
+        return true;
+    };
+}
+
 DateAndTimeParserStep TimestampParser::make_fraction_parser(unsigned digits)
 {
     return [digits](std::string& to_parse, int index, int& index_jump, DateAndTime& output)
@@ -493,6 +538,41 @@ DateAndTimeParserStep TimestampParser::make_fraction_parser(unsigned digits)
 
         output.nanosecond = value;
         index_jump        = static_cast<int>(digits);
+        return true;
+    };
+}
+
+DateAndTimeParserStep TimestampParser::make_variable_fraction_parser()
+{
+    return [](std::string& to_parse, int index, int& index_jump, DateAndTime& output)
+    {
+        if (index < 0 || index >= static_cast<int>(to_parse.size()) || !TimestampParser::is_digit(to_parse[index]))
+        {
+            return false;
+        }
+
+        unsigned value       = 0;
+        unsigned used_digits = 0;
+        int consumed         = 0;
+
+        while (index + consumed < static_cast<int>(to_parse.size()) && TimestampParser::is_digit(to_parse[index + consumed]))
+        {
+            if (used_digits < 9)
+            {
+                value = value * 10 + static_cast<unsigned>(to_parse[index + consumed] - '0');
+                ++used_digits;
+            }
+
+            ++consumed;
+        }
+
+        for (unsigned scale_digits = used_digits; scale_digits < 9; ++scale_digits)
+        {
+            value *= 10;
+        }
+
+        output.nanosecond = value;
+        index_jump        = consumed;
         return true;
     };
 }

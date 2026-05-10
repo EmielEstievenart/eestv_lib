@@ -53,7 +53,9 @@ private:
     static DateAndTimeParserStep make_two_digit_field_parser(unsigned DateAndTime::* field, unsigned min_value, unsigned max_value);
     static DateAndTimeParserStep make_month_name_parser();
     static DateAndTimeParserStep make_second_parser();
+    static DateAndTimeParserStep make_variable_second_parser();
     static DateAndTimeParserStep make_fraction_parser(unsigned digits);
+    static DateAndTimeParserStep make_variable_fraction_parser();
     static DateAndTimeParserStep make_utc_designator_parser();
     static DateAndTimeParserStep make_utc_offset_parser(bool with_colon);
     static DateAndTimeParserStep make_date_validator(bool has_year);
