@@ -29,6 +29,13 @@ std::time_t make_utc_time(std::tm* utc_time)
 #endif
 }
 
+CompiledDateAndTimeParser make_invalid_parser(const std::string& format, int index, const std::string& message)
+{
+    CompiledDateAndTimeParser invalid;
+    invalid.error = "Invalid timestamp format \"" + format + "\": " + message + " (position " + std::to_string(index) + ")";
+    return invalid;
+}
+
 } // namespace
 
 std::optional<std::chrono::system_clock::time_point> DateAndTime::to_time_point() const
@@ -58,9 +65,14 @@ std::optional<std::chrono::system_clock::time_point> DateAndTime::to_time_point(
     return std::chrono::system_clock::time_point(std::chrono::duration_cast<std::chrono::system_clock::duration>(duration));
 }
 
-compiledDataAndTimeParser TimestampParser::CompileFormat(const std::string& format)
+CompiledDateAndTimeParser TimestampParser::CompileFormat(const std::string& format)
 {
-    compiledDataAndTimeParser parser;
+    if (format.empty())
+    {
+        return make_invalid_parser(format, 0, "format is empty");
+    }
+
+    CompiledDateAndTimeParser parser;
     const int size = static_cast<int>(format.size());
     bool has_year  = false;
     bool has_month = false;
@@ -77,7 +89,7 @@ compiledDataAndTimeParser TimestampParser::CompileFormat(const std::string& form
 
             if (has_quad_year)
             {
-                parser.dateParser.push_back(make_four_digit_year_parser());
+                parser.steps.push_back(make_four_digit_year_parser());
                 has_year = true;
                 index += 3;
                 continue;
@@ -85,11 +97,13 @@ compiledDataAndTimeParser TimestampParser::CompileFormat(const std::string& form
 
             if (has_double_year)
             {
-                parser.dateParser.push_back(make_two_digit_year_parser());
+                parser.steps.push_back(make_two_digit_year_parser());
                 has_year = true;
                 index += 1;
                 continue;
             }
+
+            return make_invalid_parser(format, index, "'Y' must appear as YY or YYYY");
         }
 
         if (token == 'M')
@@ -99,7 +113,7 @@ compiledDataAndTimeParser TimestampParser::CompileFormat(const std::string& form
 
             if (has_triple_month)
             {
-                parser.dateParser.push_back(make_month_name_parser());
+                parser.steps.push_back(make_month_name_parser());
                 has_month = true;
                 index += 2;
                 continue;
@@ -107,54 +121,84 @@ compiledDataAndTimeParser TimestampParser::CompileFormat(const std::string& form
 
             if (has_double_month)
             {
-                parser.dateParser.push_back(make_two_digit_field_parser(&DateAndTime::month, 1, 12));
+                parser.steps.push_back(make_two_digit_field_parser(&DateAndTime::month, 1, 12));
                 has_month = true;
                 index += 1;
                 continue;
             }
+
+            return make_invalid_parser(format, index, "'M' must appear as MM or MMM");
         }
 
-        if (token == 'D' && index + 1 < size && format[index + 1] == 'D')
+        if (token == 'D')
         {
-            parser.dateParser.push_back(make_two_digit_field_parser(&DateAndTime::day, 1, 31));
-            has_day = true;
-            index += 1;
-            continue;
+            if (index + 1 < size && format[index + 1] == '*')
+            {
+                parser.steps.push_back(make_padded_day_parser());
+                has_day = true;
+                index += 1;
+                continue;
+            }
+
+            if (index + 1 < size && format[index + 1] == 'D')
+            {
+                parser.steps.push_back(make_two_digit_field_parser(&DateAndTime::day, 1, 31));
+                has_day = true;
+                index += 1;
+                continue;
+            }
+
+            return make_invalid_parser(format, index, "'D' must appear as DD or D*");
         }
 
-        if ((token == 'h' || token == 'H') && index + 1 < size && format[index + 1] == token)
+        if (token == 'h' || token == 'H')
         {
-            parser.dateParser.push_back(make_two_digit_field_parser(&DateAndTime::hour, 0, 23));
-            index += 1;
-            continue;
+            if (index + 1 < size && format[index + 1] == token)
+            {
+                parser.steps.push_back(make_two_digit_field_parser(&DateAndTime::hour, 0, 23));
+                index += 1;
+                continue;
+            }
+
+            return make_invalid_parser(format, index, std::string("'") + token + "' must appear as " + token + token);
         }
 
-        if (token == 'm' && index + 1 < size && format[index + 1] == 'm')
+        if (token == 'm')
         {
-            parser.dateParser.push_back(make_two_digit_field_parser(&DateAndTime::minute, 0, 59));
-            index += 1;
-            continue;
+            if (index + 1 < size && format[index + 1] == 'm')
+            {
+                parser.steps.push_back(make_two_digit_field_parser(&DateAndTime::minute, 0, 59));
+                index += 1;
+                continue;
+            }
+
+            return make_invalid_parser(format, index, "'m' must appear as mm");
         }
 
-        if (token == 's' && index + 1 < size && format[index + 1] == '*')
+        if (token == 's')
         {
-            parser.dateParser.push_back(make_variable_second_parser());
-            index += 1;
-            continue;
-        }
+            if (index + 1 < size && format[index + 1] == '*')
+            {
+                parser.steps.push_back(make_variable_second_parser());
+                index += 1;
+                continue;
+            }
 
-        if (token == 's' && index + 1 < size && format[index + 1] == 's')
-        {
-            parser.dateParser.push_back(make_second_parser());
-            index += 1;
-            continue;
+            if (index + 1 < size && format[index + 1] == 's')
+            {
+                parser.steps.push_back(make_second_parser());
+                index += 1;
+                continue;
+            }
+
+            return make_invalid_parser(format, index, "'s' must appear as ss or s*");
         }
 
         if (token == 'f')
         {
             if (index + 1 < size && format[index + 1] == '*')
             {
-                parser.dateParser.push_back(make_variable_fraction_parser());
+                parser.steps.push_back(make_variable_fraction_parser());
                 index += 1;
                 continue;
             }
@@ -166,7 +210,12 @@ compiledDataAndTimeParser TimestampParser::CompileFormat(const std::string& form
                 ++digits;
             }
 
-            parser.dateParser.push_back(make_fraction_parser(digits));
+            if (digits > 9)
+            {
+                return make_invalid_parser(format, index, "a fraction supports at most 9 'f' digits");
+            }
+
+            parser.steps.push_back(make_fraction_parser(digits));
             index += static_cast<int>(digits) - 1;
             continue;
         }
@@ -178,28 +227,28 @@ compiledDataAndTimeParser TimestampParser::CompileFormat(const std::string& form
 
             if (has_triple_z)
             {
-                parser.dateParser.push_back(make_utc_offset_parser(true));
+                parser.steps.push_back(make_utc_offset_parser(true));
                 index += 2;
                 continue;
             }
 
             if (has_double_z)
             {
-                parser.dateParser.push_back(make_utc_offset_parser(false));
+                parser.steps.push_back(make_utc_offset_parser(false));
                 index += 1;
                 continue;
             }
 
-            parser.dateParser.push_back(make_utc_designator_parser());
+            parser.steps.push_back(make_utc_designator_parser());
             continue;
         }
 
-        parser.dateParser.push_back(make_separator_parser(token));
+        parser.steps.push_back(make_separator_parser(token));
     }
 
     if (has_month || has_day)
     {
-        parser.dateParser.push_back(make_date_validator(has_year));
+        parser.steps.push_back(make_date_validator(has_year));
     }
 
     return parser;
@@ -224,41 +273,22 @@ bool TimestampParser::is_separator(char tested)
     }
 }
 
-std::vector<int> TimestampParser::possible_parse_start_indices(const std::string& to_parse)
+std::vector<int> TimestampParser::possible_parse_start_indices(std::string_view to_parse)
 {
-    std::vector<int> indices {0};
-    bool in_whitespace = false;
-
-    for (int index = 0; index < static_cast<int>(to_parse.size()); ++index)
-    {
-        const bool is_whitespace = to_parse[index] == ' ' || to_parse[index] == '\t';
-
-        if (!in_whitespace && is_whitespace)
-        {
-            in_whitespace = true;
-            continue;
-        }
-
-        if (in_whitespace && !is_whitespace)
-        {
-            indices.push_back(index);
-            in_whitespace = false;
-        }
-    }
-
-    return indices;
+    return possible_parse_start_indices(to_parse, (std::numeric_limits<int>::max)());
 }
 
-std::vector<int> TimestampParser::possible_parse_start_indices(const std::string& to_parse, int max_indices)
+std::vector<int> TimestampParser::possible_parse_start_indices(std::string_view to_parse, int max_indices)
 {
     std::vector<int> indices {0};
-    bool in_whitespace = false;
-    int nr_of_indices  = 1;
 
-    if (max_indices == 0 || max_indices == 1)
+    if (max_indices <= 1)
     {
         return indices;
     }
+
+    bool in_whitespace = false;
+    int nr_of_indices  = 1;
 
     for (int index = 0; index < static_cast<int>(to_parse.size()); ++index)
     {
@@ -285,12 +315,51 @@ std::vector<int> TimestampParser::possible_parse_start_indices(const std::string
     return indices;
 }
 
+int TimestampParser::nth_parse_start_index(std::string_view to_parse, int n)
+{
+    if (n < 0)
+    {
+        return -1;
+    }
+
+    if (n == 0)
+    {
+        return 0;
+    }
+
+    bool in_whitespace = false;
+    int found_indices  = 0;
+
+    for (int index = 0; index < static_cast<int>(to_parse.size()); ++index)
+    {
+        const bool is_whitespace = to_parse[index] == ' ' || to_parse[index] == '\t';
+
+        if (!in_whitespace && is_whitespace)
+        {
+            in_whitespace = true;
+            continue;
+        }
+
+        if (in_whitespace && !is_whitespace)
+        {
+            in_whitespace = false;
+            ++found_indices;
+            if (found_indices == n)
+            {
+                return index;
+            }
+        }
+    }
+
+    return -1;
+}
+
 bool TimestampParser::is_digit(char tested)
 {
     return tested >= '0' && tested <= '9';
 }
 
-bool TimestampParser::try_parse_two_digits(const std::string& to_parse, int index, unsigned& value)
+bool TimestampParser::try_parse_two_digits(std::string_view to_parse, int index, unsigned& value)
 {
     if (index < 0 || index + 1 >= static_cast<int>(to_parse.size()))
     {
@@ -309,7 +378,7 @@ bool TimestampParser::try_parse_two_digits(const std::string& to_parse, int inde
     return true;
 }
 
-bool TimestampParser::try_parse_four_digits(const std::string& to_parse, int index, int& value)
+bool TimestampParser::try_parse_four_digits(std::string_view to_parse, int index, int& value)
 {
     if (index < 0 || index + 3 >= static_cast<int>(to_parse.size()))
     {
@@ -332,7 +401,7 @@ bool TimestampParser::try_parse_four_digits(const std::string& to_parse, int ind
 
 DateAndTimeParserStep TimestampParser::make_separator_parser(char separator)
 {
-    return [separator](std::string& to_parse, int index, int& index_jump, DateAndTime& output)
+    return [separator](std::string_view to_parse, int index, int& index_jump, DateAndTime& output)
     {
         static_cast<void>(output);
 
@@ -353,7 +422,7 @@ DateAndTimeParserStep TimestampParser::make_separator_parser(char separator)
 
 DateAndTimeParserStep TimestampParser::make_two_digit_year_parser()
 {
-    return [](std::string& to_parse, int index, int& index_jump, DateAndTime& output)
+    return [](std::string_view to_parse, int index, int& index_jump, DateAndTime& output)
     {
         unsigned year = 0;
         if (!TimestampParser::try_parse_two_digits(to_parse, index, year))
@@ -369,7 +438,7 @@ DateAndTimeParserStep TimestampParser::make_two_digit_year_parser()
 
 DateAndTimeParserStep TimestampParser::make_four_digit_year_parser()
 {
-    return [](std::string& to_parse, int index, int& index_jump, DateAndTime& output)
+    return [](std::string_view to_parse, int index, int& index_jump, DateAndTime& output)
     {
         int year = 0;
         if (!TimestampParser::try_parse_four_digits(to_parse, index, year))
@@ -385,7 +454,7 @@ DateAndTimeParserStep TimestampParser::make_four_digit_year_parser()
 
 DateAndTimeParserStep TimestampParser::make_two_digit_field_parser(unsigned DateAndTime::* field, unsigned min_value, unsigned max_value)
 {
-    return [field, min_value, max_value](std::string& to_parse, int index, int& index_jump, DateAndTime& output)
+    return [field, min_value, max_value](std::string_view to_parse, int index, int& index_jump, DateAndTime& output)
     {
         unsigned value = 0;
         if (!TimestampParser::try_parse_two_digits(to_parse, index, value))
@@ -404,9 +473,52 @@ DateAndTimeParserStep TimestampParser::make_two_digit_field_parser(unsigned Date
     };
 }
 
+DateAndTimeParserStep TimestampParser::make_padded_day_parser()
+{
+    // Accepts "DD", "D" and " D": RFC 3164 syslog pads single-digit days with a space.
+    return [](std::string_view to_parse, int index, int& index_jump, DateAndTime& output)
+    {
+        const int size = static_cast<int>(to_parse.size());
+        if (index < 0 || index >= size)
+        {
+            return false;
+        }
+
+        int cursor = index;
+        if (to_parse[cursor] == ' ')
+        {
+            ++cursor;
+        }
+
+        if (cursor >= size || !TimestampParser::is_digit(to_parse[cursor]))
+        {
+            return false;
+        }
+
+        unsigned day = static_cast<unsigned>(to_parse[cursor] - '0');
+        ++cursor;
+
+        const bool space_padded = cursor - index == 2;
+        if (!space_padded && cursor < size && TimestampParser::is_digit(to_parse[cursor]))
+        {
+            day = day * 10 + static_cast<unsigned>(to_parse[cursor] - '0');
+            ++cursor;
+        }
+
+        if (day < 1 || day > 31)
+        {
+            return false;
+        }
+
+        output.day = day;
+        index_jump = cursor - index;
+        return true;
+    };
+}
+
 DateAndTimeParserStep TimestampParser::make_month_name_parser()
 {
-    return [](std::string& to_parse, int index, int& index_jump, DateAndTime& output)
+    return [](std::string_view to_parse, int index, int& index_jump, DateAndTime& output)
     {
         if (index < 0 || index + 2 >= static_cast<int>(to_parse.size()))
         {
@@ -454,7 +566,7 @@ DateAndTimeParserStep TimestampParser::make_month_name_parser()
 
 DateAndTimeParserStep TimestampParser::make_second_parser()
 {
-    return [](std::string& to_parse, int index, int& index_jump, DateAndTime& output)
+    return [](std::string_view to_parse, int index, int& index_jump, DateAndTime& output)
     {
         unsigned second = 0;
         if (!TimestampParser::try_parse_two_digits(to_parse, index, second))
@@ -476,7 +588,7 @@ DateAndTimeParserStep TimestampParser::make_second_parser()
 
 DateAndTimeParserStep TimestampParser::make_variable_second_parser()
 {
-    return [](std::string& to_parse, int index, int& index_jump, DateAndTime& output)
+    return [](std::string_view to_parse, int index, int& index_jump, DateAndTime& output)
     {
         if (index < 0 || index >= static_cast<int>(to_parse.size()) || !TimestampParser::is_digit(to_parse[index]))
         {
@@ -506,13 +618,9 @@ DateAndTimeParserStep TimestampParser::make_variable_second_parser()
 
 DateAndTimeParserStep TimestampParser::make_fraction_parser(unsigned digits)
 {
-    return [digits](std::string& to_parse, int index, int& index_jump, DateAndTime& output)
+    // CompileFormat only creates this step with 1 to 9 digits.
+    return [digits](std::string_view to_parse, int index, int& index_jump, DateAndTime& output)
     {
-        if (digits == 0 || digits > 9)
-        {
-            return false;
-        }
-
         if (index < 0 || index + static_cast<int>(digits) > static_cast<int>(to_parse.size()))
         {
             return false;
@@ -544,7 +652,7 @@ DateAndTimeParserStep TimestampParser::make_fraction_parser(unsigned digits)
 
 DateAndTimeParserStep TimestampParser::make_variable_fraction_parser()
 {
-    return [](std::string& to_parse, int index, int& index_jump, DateAndTime& output)
+    return [](std::string_view to_parse, int index, int& index_jump, DateAndTime& output)
     {
         if (index < 0 || index >= static_cast<int>(to_parse.size()) || !TimestampParser::is_digit(to_parse[index]))
         {
@@ -579,14 +687,14 @@ DateAndTimeParserStep TimestampParser::make_variable_fraction_parser()
 
 DateAndTimeParserStep TimestampParser::make_utc_designator_parser()
 {
-    return [](std::string& to_parse, int index, int& index_jump, DateAndTime& output)
+    return [](std::string_view to_parse, int index, int& index_jump, DateAndTime& output)
     {
         if (index < 0 || index >= static_cast<int>(to_parse.size()))
         {
             return false;
         }
 
-        if (to_parse[index] != 'Z')
+        if (to_parse[index] != 'Z' && to_parse[index] != 'z')
         {
             return false;
         }
@@ -599,7 +707,7 @@ DateAndTimeParserStep TimestampParser::make_utc_designator_parser()
 
 DateAndTimeParserStep TimestampParser::make_utc_offset_parser(bool with_colon)
 {
-    return [with_colon](std::string& to_parse, int index, int& index_jump, DateAndTime& output)
+    return [with_colon](std::string_view to_parse, int index, int& index_jump, DateAndTime& output)
     {
         if (index < 0 || index >= static_cast<int>(to_parse.size()))
         {
@@ -665,7 +773,7 @@ DateAndTimeParserStep TimestampParser::make_utc_offset_parser(bool with_colon)
 
 DateAndTimeParserStep TimestampParser::make_date_validator(bool has_year)
 {
-    return [has_year](std::string& to_parse, int index, int& index_jump, DateAndTime& output)
+    return [has_year](std::string_view to_parse, int index, int& index_jump, DateAndTime& output)
     {
         static_cast<void>(to_parse);
         static_cast<void>(index);
@@ -676,7 +784,9 @@ DateAndTimeParserStep TimestampParser::make_date_validator(bool has_year)
             return true;
         }
 
-        const bool leap_year   = has_year && TimestampParser::is_leap_year(output.year);
+        // A format without a year cannot rule out a leap year, so give February 29 the
+        // benefit of the doubt instead of rejecting it in three out of four years.
+        const bool leap_year   = !has_year || TimestampParser::is_leap_year(output.year);
         const unsigned max_day = TimestampParser::max_day_in_month(output.month, leap_year);
 
         if (max_day == 0 || output.day > max_day)
